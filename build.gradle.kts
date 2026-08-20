@@ -47,7 +47,13 @@ kotlin {
     }
 }
 
-tasks.withType<Jar> {
+// A dedicated executable fat jar. This is kept separate from the default `jar`
+// task so that the plain `jar` remains a thin jar. Bundling dependencies (e.g.
+// kotlinx-serialization-core) into the consumed jar shadows their version
+// metadata and breaks the serialization compiler plugin in downstream projects.
+tasks.register<Jar>("fatJar") {
+    archiveClassifier.set("all")
+
     manifest {
         attributes["Main-Class"] = "gov.nasa.jpl.parakeet.MainKt"
     }
