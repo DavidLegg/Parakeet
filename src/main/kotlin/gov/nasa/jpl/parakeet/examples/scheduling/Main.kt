@@ -3,7 +3,6 @@ package gov.nasa.jpl.parakeet.examples.scheduling
 import gov.nasa.jpl.parakeet.examples.scheduling.data.model.DataModel
 import gov.nasa.jpl.parakeet.examples.scheduling.geometry.model.GeometryModel
 import gov.nasa.jpl.parakeet.examples.scheduling.geometry.model.GeometryModel.PointingTarget
-import gov.nasa.jpl.parakeet.examples.scheduling.geometry.utils.unitAware
 import gov.nasa.jpl.parakeet.examples.scheduling.gnc.activities.GncSetAgility
 import gov.nasa.jpl.parakeet.examples.scheduling.gnc.activities.GncSetSystemMode
 import gov.nasa.jpl.parakeet.examples.scheduling.gnc.activities.GncTurn
@@ -31,8 +30,6 @@ import gov.nasa.jpl.parakeet.foundation.plans.Activity
 import gov.nasa.jpl.parakeet.foundation.plans.GroundedActivity
 import gov.nasa.jpl.parakeet.foundation.plans.activities
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.Discrete
-import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations.greaterThan
-import gov.nasa.jpl.parakeet.foundation.serialization.InstantSerializer
 import gov.nasa.jpl.parakeet.foundation.serialization.ResultSerializer
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.general.plans.runStandardPlanSimulation
@@ -46,28 +43,21 @@ import gov.nasa.jpl.parakeet.general.units.StandardUnits.DEGREE
 import gov.nasa.jpl.parakeet.general.units.StandardUnits.GIGABYTE
 import gov.nasa.jpl.parakeet.general.units.StandardUnits.MEGABYTE
 import gov.nasa.jpl.parakeet.general.units.StandardUnits.WATT
-import gov.nasa.jpl.parakeet.general.units.Unit.Companion.SCALAR
 import gov.nasa.jpl.parakeet.general.units.UnitAware.Companion.div
 import gov.nasa.jpl.parakeet.general.units.UnitAware.Companion.times
 import gov.nasa.jpl.parakeet.kernel.Name
 import gov.nasa.jpl.parakeet.kernel.NameOperations.div
 import gov.nasa.jpl.parakeet.utilities.InvertibleFunction
 import gov.nasa.jpl.parakeet.utilities.Serialization.alias
-import gov.nasa.jpl.parakeet.utilities.Serialization.encodeToFile
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.builtins.DoubleArraySerializer
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.contextual
 import org.apache.commons.math3.geometry.euclidean.threed.Rotation
 import org.apache.commons.math3.geometry.euclidean.threed.Vector3D
-import kotlin.io.path.*
-import kotlin.io.path.div
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
-import kotlin.time.TimeSource
 
 // From our knowledge of this particular model, we know that a GncTurn never takes more than 45 minutes.
 // We'll use this to make our scheduling procedure highly efficient.
@@ -83,7 +73,6 @@ private val STANDARD_CONFIG = SystemModel.Config(
 )
 val JSON_FORMAT = Json {
     serializersModule = SerializersModule {
-        contextual(Instant::class, InstantSerializer())
         contextual(Result::class) { ResultSerializer(it[0]) }
         // Vector3D serialization
         contextual(DoubleArraySerializer().alias(InvertibleFunction.of(
@@ -130,7 +119,6 @@ val JSON_FORMAT = Json {
 
 val GNC_JSON_FORMAT = Json {
     serializersModule = SerializersModule {
-        contextual(Instant::class, InstantSerializer())
         contextual(Result::class) { ResultSerializer(it[0]) }
         // Vector3D serialization
         contextual(DoubleArraySerializer().alias(InvertibleFunction.of(

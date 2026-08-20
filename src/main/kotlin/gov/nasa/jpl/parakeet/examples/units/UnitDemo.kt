@@ -24,7 +24,6 @@ import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOpera
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations.set
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.MutableDiscreteResource
 import gov.nasa.jpl.parakeet.foundation.resources.named
-import gov.nasa.jpl.parakeet.foundation.serialization.InstantSerializer
 import gov.nasa.jpl.parakeet.foundation.serialization.ResultSerializer
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope.Companion.subContext
@@ -189,7 +188,6 @@ class UnitDemo(
     companion object {
         val JSON_FORMAT = Json {
             serializersModule = SerializersModule {
-                contextual(Instant::class, InstantSerializer())
                 contextual(Result::class) { ResultSerializer(it[0]) }
 
                 activities {

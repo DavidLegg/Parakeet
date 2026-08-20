@@ -1,11 +1,7 @@
-@file:UseSerializers(InstantSerializer::class)
-
 package gov.nasa.jpl.parakeet.foundation.plans
 
-import gov.nasa.jpl.parakeet.foundation.serialization.InstantSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.UseSerializers
 import kotlin.time.Instant
 
 @Serializable

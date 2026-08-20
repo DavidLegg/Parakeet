@@ -48,7 +48,6 @@ data class StandardPlanSimulationSetup<M>(
  * @param jsonFormat
  * The [Json] format to use everywhere, including plan deserialization, reports, and incon/fincon handling.
  */
-@OptIn(ExperimentalSerializationApi::class)
 fun <M: Any> runStandardPlanSimulation(
     setupFile: String,
     constructModel: InitScope.() -> M,

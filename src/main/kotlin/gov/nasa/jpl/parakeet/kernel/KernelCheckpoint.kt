@@ -1,6 +1,5 @@
 package gov.nasa.jpl.parakeet.kernel
 
-import gov.nasa.jpl.parakeet.foundation.serialization.InstantSerializer
 import gov.nasa.jpl.parakeet.kernel.tasks.TaskHistory
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
@@ -10,7 +9,6 @@ import kotlin.time.Instant
  */
 @Serializable
 data class KernelCheckpoint(
-    @Serializable(with = InstantSerializer::class)
     val time: Instant,
     val cells: DependentMap,
     val tasks: List<KernelTaskCheckpoint>,
@@ -23,7 +21,6 @@ data class KernelTaskCheckpoint(
     /** The name of the root task from which this task is descended. */
     val root: Name = name,
     /** The time when this task is scheduled to resume, or null if this task is complete. */
-    @Serializable(with = InstantSerializer::class)
     val time: Instant? = null,
     /** The steps taken by this task, or null if this task is complete. */
     val history: TaskHistory? = null,

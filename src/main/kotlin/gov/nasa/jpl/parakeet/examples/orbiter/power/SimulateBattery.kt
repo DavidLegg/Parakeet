@@ -5,7 +5,6 @@ import gov.nasa.jpl.parakeet.foundation.Simulator
 import gov.nasa.jpl.parakeet.foundation.plans.activities
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations.discreteResource
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.MutableDoubleResource
-import gov.nasa.jpl.parakeet.foundation.serialization.InstantSerializer
 import gov.nasa.jpl.parakeet.foundation.serialization.ResultSerializer
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope.Companion.subContext
@@ -17,7 +16,6 @@ import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.modules.SerializersModule
 import java.io.FileInputStream
 import kotlin.io.path.Path
-import kotlin.time.Instant
 
 /**
  * Run [BatteryModel] as a standalone simulation.
@@ -29,7 +27,6 @@ fun main(args: Array<String>) {
 
     val jsonFormat = Json {
         serializersModule = SerializersModule {
-            contextual(Instant::class, InstantSerializer())
             contextual(Result::class) { ResultSerializer(it[0]) }
             activities {
                 activity(ChangePowerDemand::class)

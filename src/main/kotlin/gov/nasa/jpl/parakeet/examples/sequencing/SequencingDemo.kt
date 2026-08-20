@@ -1,6 +1,5 @@
 package gov.nasa.jpl.parakeet.examples.sequencing
 
-import gov.nasa.jpl.parakeet.utilities.InvertibleFunction
 import gov.nasa.jpl.parakeet.examples.sequencing.activities.ActivateSequence
 import gov.nasa.jpl.parakeet.examples.sequencing.activities.LoadSequence
 import gov.nasa.jpl.parakeet.examples.sequencing.activities.UnloadSequence
@@ -9,16 +8,12 @@ import gov.nasa.jpl.parakeet.examples.sequencing.fsw.FswModel
 import gov.nasa.jpl.parakeet.examples.sequencing.sequence_engine.SequencingModel
 import gov.nasa.jpl.parakeet.examples.sequencing.telecom.TelecomModel
 import gov.nasa.jpl.parakeet.foundation.plans.activities
-import gov.nasa.jpl.parakeet.foundation.serialization.InstantSerializer
 import gov.nasa.jpl.parakeet.foundation.serialization.ResultSerializer
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope.Companion.subContext
-import gov.nasa.jpl.parakeet.utilities.Serialization.alias
-import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import java.nio.file.Path
-import kotlin.time.Instant
 
 class SequencingDemo(
     val rootDir: Path,
@@ -43,7 +38,6 @@ class SequencingDemo(
     companion object {
         val JSON_FORMAT = Json {
             serializersModule = SerializersModule {
-                contextual(Instant::class, InstantSerializer())
                 contextual(Result::class) { ResultSerializer(it[0]) }
                 activities {
                     // Planning activities

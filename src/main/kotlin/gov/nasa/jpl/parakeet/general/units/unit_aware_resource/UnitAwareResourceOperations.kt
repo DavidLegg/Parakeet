@@ -97,9 +97,12 @@ object UnitAwareResourceOperations {
             PolynomialRing,
             PolynomialResourceRing,
             MutablePolynomialResourceScaling,
-            IntegralPolynomialResourceScaling
         ) {
-            block()
+            context (
+                IntegralPolynomialResourceScaling
+            ) {
+                block()
+            }
         }
     }
 }
