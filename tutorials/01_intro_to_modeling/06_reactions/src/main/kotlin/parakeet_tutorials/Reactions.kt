@@ -8,6 +8,7 @@ import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOpera
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.IntResourceOperations.decrement
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.IntResourceOperations.increment
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.MutableIntResource
+import gov.nasa.jpl.parakeet.foundation.resources.getValue
 import gov.nasa.jpl.parakeet.foundation.resources.named
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope.Companion.spawn
 import gov.nasa.jpl.parakeet.foundation.tasks.Reactions.every

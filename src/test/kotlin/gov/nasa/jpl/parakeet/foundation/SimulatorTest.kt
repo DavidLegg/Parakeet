@@ -24,7 +24,6 @@ import gov.nasa.jpl.parakeet.foundation.resources.discrete.DoubleResourceOperati
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DoubleResourceOperations.plus
 import gov.nasa.jpl.parakeet.foundation.resources.getValue
 import gov.nasa.jpl.parakeet.foundation.resources.named
-import gov.nasa.jpl.parakeet.foundation.serialization.InstantSerializer
 import gov.nasa.jpl.parakeet.foundation.serialization.ResultSerializer
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope.Companion.spawn
@@ -118,7 +117,6 @@ class SimulatorTest {
         companion object {
             val JSON_FORMAT = Json {
                 serializersModule = SerializersModule {
-                    contextual(Instant::class, InstantSerializer())
                     contextual(Result::class) { ResultSerializer(it[0]) }
 
                     activities {
@@ -290,7 +288,6 @@ class SimulatorTest {
         companion object {
             val JSON_FORMAT = Json {
                 serializersModule = SerializersModule {
-                    contextual(Instant::class, InstantSerializer())
                     contextual(Result::class) { ResultSerializer(it[0]) }
 
                     activities {

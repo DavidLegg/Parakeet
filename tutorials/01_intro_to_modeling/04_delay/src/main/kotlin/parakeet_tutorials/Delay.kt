@@ -5,6 +5,7 @@ import gov.nasa.jpl.parakeet.foundation.reporting.Reporting.registered
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.BooleanResource
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations.discreteResource
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations.greaterThan
+import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations.set
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.IntResourceOperations.increment
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.MutableIntResource
 import gov.nasa.jpl.parakeet.foundation.resources.named

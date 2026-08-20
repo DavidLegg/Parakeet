@@ -1,7 +1,6 @@
 package gov.nasa.jpl.parakeet.examples.orbit
 
 import gov.nasa.jpl.parakeet.examples.orbit.OrbitalSimulation.Vector
-import gov.nasa.jpl.parakeet.foundation.serialization.InstantSerializer
 import gov.nasa.jpl.parakeet.foundation.plans.activities
 import gov.nasa.jpl.parakeet.foundation.reporting.Reporting.registered
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResource
@@ -12,7 +11,6 @@ import gov.nasa.jpl.parakeet.foundation.tasks.InitScope.Companion.subContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlin.time.Duration.Companion.hours
-import kotlin.time.Instant
 
 class EarthOrbit(
     context: InitScope,
@@ -53,7 +51,6 @@ class EarthOrbit(
     companion object {
         val JSON_FORMAT = Json {
             serializersModule = SerializersModule {
-                contextual(Instant::class, InstantSerializer())
                 contextual(Result::class) { ResultSerializer(it[0]) }
                 activities<EarthOrbit> {}
             }

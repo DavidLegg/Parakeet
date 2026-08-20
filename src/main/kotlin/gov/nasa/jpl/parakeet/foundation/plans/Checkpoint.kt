@@ -1,6 +1,5 @@
 package gov.nasa.jpl.parakeet.foundation.plans
 
-import gov.nasa.jpl.parakeet.foundation.serialization.InstantSerializer
 import gov.nasa.jpl.parakeet.kernel.DependentMap
 import gov.nasa.jpl.parakeet.kernel.KernelTaskCheckpoint
 import gov.nasa.jpl.parakeet.kernel.Name
@@ -17,7 +16,6 @@ import kotlin.time.Instant
  */
 @Serializable
 data class Checkpoint<M>(
-    @Serializable(with = InstantSerializer::class)
     val time: Instant,
     val cells: DependentMap,
     val daemons: List<KernelTaskCheckpoint>,
@@ -33,7 +31,6 @@ data class Checkpoint<M>(
 @Serializable
 data class ActivityTaskCheckpoint<M>(
     /** The time when this task is scheduled to resume, or null if this task is complete. */
-    @Serializable(with = InstantSerializer::class)
     val time: Instant? = null,
     /** The name of this task */
     val name: Name,

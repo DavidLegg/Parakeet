@@ -3,6 +3,7 @@ package parakeet_tutorials
 import gov.nasa.jpl.parakeet.foundation.plans.ActivityActions.spawn
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations.discreteResource
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.MutableDiscreteResource
+import gov.nasa.jpl.parakeet.foundation.resources.getValue
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope.Companion.spawn
 import gov.nasa.jpl.parakeet.foundation.tasks.Reactions.every

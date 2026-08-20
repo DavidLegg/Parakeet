@@ -1,6 +1,5 @@
 package gov.nasa.jpl.parakeet.foundation.plans
 
-import gov.nasa.jpl.parakeet.foundation.serialization.InstantSerializer
 import gov.nasa.jpl.parakeet.foundation.tasks.ReportScope.Companion.report
 import gov.nasa.jpl.parakeet.foundation.tasks.ResourceScope.Companion.now
 import gov.nasa.jpl.parakeet.foundation.tasks.SimulationScope
@@ -24,9 +23,7 @@ object ActivityActions {
     data class ActivityEvent(
         val name: Name,
         val type: String,
-        @Serializable(with = InstantSerializer::class)
         val start: Instant,
-        @Serializable(with = InstantSerializer::class)
         val end: Instant? = null,
         // Report the activity instance itself, but only for in-memory usage.
         // The default serialization drops this extra detail.
