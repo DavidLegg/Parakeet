@@ -69,6 +69,8 @@ class BufferedParallelReportHandler(
 
     override fun close() {
         runBlocking {
+            // Remember to flush any reports buffered in currentBatch
+            if (currentBatch.isNotEmpty()) channel.send(currentBatch)
             // Close the channel to signal end-of-data to the reporter
             channel.close()
             // Join the reporter to await it reporting all remaining data in the channel
