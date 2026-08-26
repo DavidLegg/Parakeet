@@ -16,11 +16,14 @@ import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 
 @Serializable(with = Discrete.DiscreteSerializer::class)
-data class Discrete<A>(val value: A) : Dynamics<A, Discrete<A>> {
+@JvmInline
+value class Discrete<A>(val value: A) : Dynamics<A, Discrete<A>> {
     override fun value() = value
     override fun step(t: Duration) = this
     override fun toString(): String = value.toString()
 
+    // TODO: This shouldn't be necessary... the Kotlin serialization system ought to be able to just use the serializer
+    //   it would be looking up...
     class DiscreteSerializer<A>(valueSerializer: KSerializer<A>) : KSerializer<Discrete<A>> by valueSerializer.alias(
         InvertibleFunction.of(
             ::Discrete,

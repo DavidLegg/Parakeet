@@ -14,14 +14,21 @@ data class Expiring<T>(val data: T, val expiry: Duration) {
     }
 }
 
+// Specialized version of "minOf" for Durations, meant for "expiry" calculations
+// This both reads cleaner: "my expiry = thisExpiry or thatExpiry"
+// And, being specialized on a concrete value class, will be compiled to operate on the primitive it contains.
+// This should avoid boxing the Duration in some cases.
+infix fun Duration.or(other: Duration): Duration =
+    if (this <= other) this else other
+
 fun <D : Dynamics<*, D>> Expiring<D>.step(time: Duration) = Expiring(data.step(time), expiry - time)
 
 @Suppress("NOTHING_TO_INLINE")
 object ExpiringMonad {
     inline fun <A> pure(a: A): Expiring<A> = Expiring(a, INFINITE)
     inline fun <A, B> apply(a: Expiring<A>, f: Expiring<(A) -> B>) =
-        Expiring(f.data(a.data), minOf(f.expiry, a.expiry))
-    inline fun <A> join(a: Expiring<Expiring<A>>) = Expiring(a.data.data, minOf(a.expiry, a.data.expiry))
+        Expiring(f.data(a.data), f.expiry or a.expiry)
+    inline fun <A> join(a: Expiring<Expiring<A>>) = Expiring(a.data.data, a.expiry or a.data.expiry)
     // Although map can be defined in terms of apply and join, writing it this way instead makes it inlinable.
     // This can be a major boon to performance, so it's worth the redundant code
     inline fun <A, B> map(a: Expiring<A>, f: (A) -> B): Expiring<B> = Expiring(f(a.data), a.expiry)

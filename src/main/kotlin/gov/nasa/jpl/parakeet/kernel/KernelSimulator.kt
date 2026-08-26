@@ -42,7 +42,7 @@ class KernelSimulator(
     private var cells: MutableList<Cell<*>> = mutableListOf()
     private val tasks: PriorityQueue<TaskEntry> = PriorityQueue(comparing(TaskEntry::time))
     private val cellListeners: MutableMap<Cell<*>, MutableSet<AwaitingTask>> = mutableMapOf()
-    private val listeningTasks: MutableMap<AwaitingTask, Set<Cell<*>>> = mutableMapOf()
+    private val listeningTasks: MutableMap<AwaitingTask, List<Cell<*>>> = mutableMapOf()
     private val modifiedCells: MutableSet<Cell<*>> = mutableSetOf()
     private val daemonNames: Set<Name>
 
@@ -154,7 +154,7 @@ class KernelSimulator(
         if (batchTime != null && batchTime == time && batchTime <= endTime) {
             // Collect a batch of tasks, prior to running any of those tasks,
             // since running the tasks may add new tasks that should logically come after this batch.
-            val taskBatch = mutableSetOf<Task>()
+            val taskBatch = mutableListOf<Task>()
             while (tasks.peek()?.time == batchTime) taskBatch += tasks.remove().task
             runTaskBatch(taskBatch)
         } else {
@@ -176,7 +176,7 @@ class KernelSimulator(
         // This avoids accumulating numerical precision errors for complex dynamics when stepping up repeatedly.
     }
 
-    private fun runTaskBatch(tasks: MutableSet<Task>) {
+    private fun runTaskBatch(tasks: MutableList<Task>) {
         for (task in tasks) {
             runTask(task)
         }
@@ -297,10 +297,11 @@ class KernelSimulator(
         resetListeners(awaitingTask)
 
         // Evaluate the condition, recording the cells we read along the way
-        val cellsRead: MutableSet<Cell<*>> = mutableSetOf()
+        // Performance note: Most conditions read very few cells, so searching for the cell linearly is faster than maintaining a hash table.
+        val cellsRead: MutableList<Cell<*>> = mutableListOf()
         val result = awaitingTask.await.condition(object : ReadActions {
             override fun <V> read(cell: Cell<V>): V {
-                cellsRead += cell
+                if (cell !in cellsRead) cellsRead += cell
                 return (cell as CellImpl<V>).value
             }
         })
@@ -340,7 +341,7 @@ class KernelSimulator(
         }
     }
 
-    private fun setListeners(awaitingTask: AwaitingTask, cellsRead: Set<Cell<*>>) {
+    private fun setListeners(awaitingTask: AwaitingTask, cellsRead: List<Cell<*>>) {
         // Schedule listeners to re-evaluate condition if cells change
         for (cell in cellsRead) {
             cellListeners.getOrPut(cell) { mutableSetOf() } += awaitingTask

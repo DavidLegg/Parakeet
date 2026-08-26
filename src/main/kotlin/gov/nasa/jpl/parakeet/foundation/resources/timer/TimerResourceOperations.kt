@@ -82,7 +82,14 @@ object TimerResourceOperations {
         ResourceMonad.pure(Timer(time, 0.0)).fullyNamed { Name(time.toString()) }
 
     private fun TimerResource.compareWith(other: TimerResource, bipredicate: (Duration, Duration) -> Boolean): BooleanResource =
-        ThinResourceMonad.map(this, other, DynamicsMonad.bind { t, o ->
+        // Note: This could be cleaned up a little using monadic operations, but this shows up as a performance hot path.
+        // To avoid some boxing and unboxing of Durations, we directly re-implement the monadic behavior here.
+        ThinResource {
+            val thisDynamics = this@compareWith.getDynamics()
+            val otherDynamics = other.getDynamics()
+            val t = thisDynamics.data
+            val o = otherDynamics.data
+
             val initialResult = bipredicate(t.time, o.time)
             val deltaRate = o.rate - t.rate
             val estimatedRoot = if (deltaRate == 0.0) INFINITE else (t.time - o.time) / deltaRate
@@ -97,10 +104,12 @@ object TimerResourceOperations {
                     }
             }
             checkNotNull(expiry) { "Root finding failed on resource $this" }
+            var finalExpiry = thisDynamics.expiry or otherDynamics.expiry
+            if (expiry > ZERO) finalExpiry = finalExpiry or expiry
             // It's possible, especially for "satisfied at 0" cases, that the root is at or before 0 too.
             // This isn't a failure of root-finding, but it isn't a meaningful expiry either.
-            Expiring(Discrete(initialResult), expiry.takeIf { it > ZERO } ?: INFINITE)
-        })
+            Expiring(Discrete(initialResult), finalExpiry)
+        }
 
     infix fun TimerResource.lessThan(other: TimerResource): BooleanResource =
         this.compareWith(other) { t, o -> t < o }.fullyNamed { Name("($this) < ($other)") }

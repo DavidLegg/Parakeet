@@ -4,6 +4,7 @@ import gov.nasa.jpl.parakeet.foundation.resources.Expiring
 import gov.nasa.jpl.parakeet.foundation.resources.ThinResource
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.Discrete
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResource
+import gov.nasa.jpl.parakeet.foundation.resources.or
 import kotlin.time.Duration
 
 object DiscreteDerivedResources {
@@ -23,7 +24,7 @@ object DiscreteDerivedResources {
                     // This getDynamics call is implicitly using the ResourceScope of the returned resource.
                     val dynamics = resource.getDynamics()
                     // We'll implicitly fold in the expiry information
-                    expiry = minOf(expiry, dynamics.expiry)
+                    expiry = expiry or dynamics.expiry
                     return dynamics.data.value
                 }
             })

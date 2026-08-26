@@ -5,7 +5,6 @@ import gov.nasa.jpl.parakeet.foundation.reporting.ChannelReport.ChannelData
 import gov.nasa.jpl.parakeet.foundation.reporting.ChannelReport.ChannelMetadata
 import gov.nasa.jpl.parakeet.foundation.reporting.ChannelizedReportHandler
 import gov.nasa.jpl.parakeet.utilities.Serialization.encodeToStream
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import java.io.OutputStream
 
@@ -22,7 +21,6 @@ object ReportHandling {
     /**
      * Writes reports as JSON lines directly to an output stream.
      */
-    @OptIn(ExperimentalSerializationApi::class)
     fun jsonlReportHandler(stream: OutputStream = System.out, jsonFormat: Json = Json): ChannelizedReportHandler =
         object : BaseChannelizedReportHandler() {
             override fun <T> constructChannel(metadata: ChannelMetadata<T>): (ChannelData<T>) -> Unit {

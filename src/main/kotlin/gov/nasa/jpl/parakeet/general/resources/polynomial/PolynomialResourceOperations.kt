@@ -229,7 +229,7 @@ object PolynomialResourceOperations {
                     // We avoid computing the more expensive expiry when we're clamping, which is a win overall.
                     val startClampingToLowerBound = lowerBound.dominates(integral).expiry
                     val startClampingToUpperBound = upperBound.dominates(integral).expiry
-                    val clampingStarts = minOf(startClampingToLowerBound, startClampingToUpperBound).takeIf { it.isFinite() }?.let {
+                    val clampingStarts = (startClampingToLowerBound or startClampingToUpperBound).takeIf { it.isFinite() }?.let {
                         whenTrue(simulationClock greaterThanOrEquals now + it)
                     }
                     ClampedIntegrateInternalResult(
@@ -241,9 +241,9 @@ object PolynomialResourceOperations {
                 }
             }
 
-            var newIntegralDynamics = DynamicsMonad.map(result, ClampedIntegrateInternalResult::integral)
-            var newOverflowDynamics = DynamicsMonad.map(result, ClampedIntegrateInternalResult::overflow)
-            var newUnderflowDynamics = DynamicsMonad.map(result, ClampedIntegrateInternalResult::underflow)
+            val newIntegralDynamics = DynamicsMonad.map(result, ClampedIntegrateInternalResult::integral)
+            val newOverflowDynamics = DynamicsMonad.map(result, ClampedIntegrateInternalResult::overflow)
+            val newUnderflowDynamics = DynamicsMonad.map(result, ClampedIntegrateInternalResult::underflow)
 
             integral.set(newIntegralDynamics)
             overflow.set(newOverflowDynamics)
