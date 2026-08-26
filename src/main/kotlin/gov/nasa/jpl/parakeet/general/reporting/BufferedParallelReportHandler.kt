@@ -8,13 +8,10 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-// TODO: Since this performs so much better than ParallelReportHandler,
-//   consider removing ParallelReportHandler entirely.
 /**
- * Like [ParallelReportHandler], runs the report handler on the IO dispatcher,
- * in parallel with the main thread.
- * However, to reduce the overhead of adding reports to the cross-thread communication channel,
- * this handler buffers reports and sends them in batches.
+ * Runs the report handler on the IO dispatcher, in parallel with the main thread.
+ * To reduce the overhead of adding reports to the cross-thread communication channel,
+ * buffers reports on this thread and sends them in batches.
  */
 class BufferedParallelReportHandler(
     scope: CoroutineScope,
