@@ -36,7 +36,7 @@ class FaultedResourceException(
     val expiry: Duration = Duration.INFINITE,
 ) : RuntimeException(message, cause) {
     fun expiringAt(newExpiry: Duration) =
-        FaultedResourceException(checkNotNull(message), checkNotNull(cause), minOf(expiry, newExpiry))
+        FaultedResourceException(checkNotNull(message), checkNotNull(cause), expiry or newExpiry)
 }
 
 

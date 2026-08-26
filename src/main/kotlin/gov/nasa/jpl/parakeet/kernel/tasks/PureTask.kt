@@ -37,7 +37,7 @@ class PureTask private constructor(
         val historyCapturingActions = object : BasicTaskActions {
             // Capture reads so we can record their value
             override fun <V> read(cell: Cell<V>): V = actions.read(cell).also {
-                thisStepHistory += ReadMarker(it) to ReadMarker.concreteType(cell.valueType)
+                thisStepHistory += ReadMarker(it) to cell.valueType
             }
             // Emit and Report don't need to write any history; they'll just run again when restoring.
             override fun <V> emit(cell: Cell<V>, effect: Effect<V>) = actions.emit(cell, effect)
@@ -45,7 +45,11 @@ class PureTask private constructor(
         }
         fun TaskHistoryCollector.collectHistory() {
             collectPriorHistory()
-            thisStepHistory.forEach { report(it.first, it.second) }
+            thisStepHistory.forEach {
+                // Defer building the concrete ReadMarker type until we actually report it.
+                // In the case that we don't report this read history, we avoid some overhead.
+                report(it.first, ReadMarker.concreteType(it.second))
+            }
         }
         return when (val stepResult = pureStepFunction.run(historyCapturingActions)) {
             PureStepResult.Complete -> TaskStepResult.Complete

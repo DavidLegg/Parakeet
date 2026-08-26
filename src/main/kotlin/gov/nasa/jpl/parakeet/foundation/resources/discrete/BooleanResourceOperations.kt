@@ -8,6 +8,7 @@ import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceMonad
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceMonad.pure
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations.emit
 import gov.nasa.jpl.parakeet.foundation.resources.fullyNamed
+import gov.nasa.jpl.parakeet.foundation.resources.or
 import gov.nasa.jpl.parakeet.foundation.tasks.TaskScope
 import gov.nasa.jpl.parakeet.kernel.Name
 import kotlin.time.Duration
@@ -34,7 +35,7 @@ object BooleanResourceOperations {
             if (a.data.value) {
                 try {
                     val b = other.getDynamics()
-                    return@Resource Expiring(b.data, minOf<Duration>(a.expiry, b.expiry))
+                    return@Resource Expiring(b.data, a.expiry or b.expiry)
                 } catch (e: FaultedResourceException) {
                     throw e.expiringAt(a.expiry)
                 }
@@ -48,7 +49,7 @@ object BooleanResourceOperations {
             if (!a.data.value) {
                 try {
                     val b = other.getDynamics()
-                    return@Resource Expiring(b.data, minOf<Duration>(a.expiry, b.expiry))
+                    return@Resource Expiring(b.data, a.expiry or b.expiry)
                 } catch (e: FaultedResourceException) {
                     throw e.expiringAt(a.expiry)
                 }
@@ -75,7 +76,7 @@ object BooleanResourceOperations {
                 } else {
                     elseCase.getDynamics()
                 }
-                Expiring(result.data, minOf<Duration>(condition.expiry, result.expiry))
+                Expiring(result.data, condition.expiry or result.expiry)
             } catch (e: FaultedResourceException) {
                 throw e.expiringAt(condition.expiry)
             }

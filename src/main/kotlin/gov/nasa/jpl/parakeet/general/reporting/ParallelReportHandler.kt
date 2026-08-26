@@ -5,6 +5,7 @@ import gov.nasa.jpl.parakeet.foundation.reporting.ChannelizedReportHandler
 import gov.nasa.jpl.parakeet.kernel.ReportHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -16,8 +17,9 @@ import java.lang.AutoCloseable
 class ParallelReportHandler private constructor(
     scope: CoroutineScope,
     private val handler: ChannelizedReportHandler,
+    bufferCapacity: Int = Channel.BUFFERED,
 ) : ChannelizedReportHandler, AutoCloseable {
-    private val channel = Channel<Any?>(Channel.BUFFERED)
+    private val channel = Channel<Any?>(bufferCapacity)
     private val job = scope.launch(Dispatchers.IO) {
         for (report in channel) {
             handler(report)
@@ -51,8 +53,8 @@ class ParallelReportHandler private constructor(
         /**
          * Run this [ChannelizedReportHandler] on a separate thread, in parallel with the simulator.
          */
-        fun <R> ChannelizedReportHandler.inParallel(block: (ParallelReportHandler) -> R) = runBlocking {
-            ParallelReportHandler(contextOf<CoroutineScope>(), this@inParallel).use(block)
+        fun <R> ChannelizedReportHandler.inParallel(bufferCapacity: Int = Channel.BUFFERED, block: (ParallelReportHandler) -> R) = runBlocking {
+            ParallelReportHandler(contextOf<CoroutineScope>(), this@inParallel, bufferCapacity).use(block)
         }
     }
 }

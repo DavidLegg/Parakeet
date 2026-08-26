@@ -24,7 +24,7 @@ class EarthOrbit(
             val earth = OrbitalSimulation.Body(
                 "Earth",
                 Vector(0.0, 0.0, 0.0),
-                Vector(0.0, 0.0, 0.0),
+                Vector(0.0, -12.57, 0.0),
                 5.972e24
             )
             val moon = OrbitalSimulation.Body(
