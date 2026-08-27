@@ -1,6 +1,5 @@
 package gov.nasa.jpl.parakeet.foundation.resources.discrete
 
-import gov.nasa.jpl.parakeet.utilities.InvertibleFunction
 import gov.nasa.jpl.parakeet.utilities.curry
 import gov.nasa.jpl.parakeet.foundation.resources.Dynamics
 import gov.nasa.jpl.parakeet.foundation.resources.DynamicsMonad
@@ -10,26 +9,15 @@ import gov.nasa.jpl.parakeet.foundation.resources.Resource
 import gov.nasa.jpl.parakeet.foundation.resources.ResourceMonad
 import gov.nasa.jpl.parakeet.foundation.resources.fullyNamed
 import gov.nasa.jpl.parakeet.kernel.Name
-import gov.nasa.jpl.parakeet.utilities.Serialization.alias
-import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 
-@Serializable(with = Discrete.DiscreteSerializer::class)
+@Serializable
 @JvmInline
 value class Discrete<A>(val value: A) : Dynamics<A, Discrete<A>> {
     override fun value() = value
     override fun step(t: Duration) = this
     override fun toString(): String = value.toString()
-
-    // TODO: This shouldn't be necessary... the Kotlin serialization system ought to be able to just use the serializer
-    //   it would be looking up...
-    class DiscreteSerializer<A>(valueSerializer: KSerializer<A>) : KSerializer<Discrete<A>> by valueSerializer.alias(
-        InvertibleFunction.of(
-            ::Discrete,
-            { it.value },
-        )
-    )
 }
 
 typealias DiscreteResource<V> = Resource<Discrete<V>>
