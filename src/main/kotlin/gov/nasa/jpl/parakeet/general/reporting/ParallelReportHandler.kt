@@ -13,7 +13,7 @@ import kotlinx.coroutines.runBlocking
  * To reduce the overhead of adding reports to the cross-thread communication channel,
  * buffers reports on this thread and sends them in batches.
  */
-class BufferedParallelReportHandler(
+class ParallelReportHandler(
     scope: CoroutineScope,
     private val handler: ChannelizedReportHandler,
     private val batchSize: Int = 1000,
@@ -79,8 +79,8 @@ class BufferedParallelReportHandler(
         /**
          * Run this [ChannelizedReportHandler] on a separate thread, in parallel with the simulator.
          */
-        fun <R> ChannelizedReportHandler.inParallelBatches(batchSize: Int = 1000, channelCapacity: Int = 62, block: (BufferedParallelReportHandler) -> R) = runBlocking {
-            BufferedParallelReportHandler(contextOf<CoroutineScope>(), this@inParallelBatches, batchSize, channelCapacity).use(block)
+        fun <R> ChannelizedReportHandler.inParallel(batchSize: Int = 1000, channelCapacity: Int = 62, block: (ParallelReportHandler) -> R) = runBlocking {
+            ParallelReportHandler(contextOf<CoroutineScope>(), this@inParallel, batchSize, channelCapacity).use(block)
         }
     }
 }

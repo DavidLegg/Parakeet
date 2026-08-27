@@ -4,7 +4,7 @@ import gov.nasa.jpl.parakeet.foundation.plans.Plan
 import gov.nasa.jpl.parakeet.foundation.Simulator
 import gov.nasa.jpl.parakeet.foundation.plans.Checkpoint
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
-import gov.nasa.jpl.parakeet.general.reporting.BufferedParallelReportHandler.Companion.inParallelBatches
+import gov.nasa.jpl.parakeet.general.reporting.ParallelReportHandler.Companion.inParallel
 import gov.nasa.jpl.parakeet.general.reporting.usingEventCsvReportHandler
 import gov.nasa.jpl.parakeet.utilities.Serialization.decodeFromFile
 import gov.nasa.jpl.parakeet.utilities.Serialization.encodeToFile
@@ -75,7 +75,7 @@ fun <M: Any> runStandardPlanSimulation(
     outputStream.use { out ->
         out.usingEventCsvReportHandler(jsonFormat) {
             // Write output in parallel with simulation
-            it.inParallelBatches { reportHandler ->
+            it.inParallel { reportHandler ->
                 // Initialize the simulation from an incon, if available.
                 val incon: Checkpoint<M>?
                 if (setup.inconFile != null) {
