@@ -2,29 +2,44 @@ package gov.nasa.jpl.parakeet.general.reporting
 
 import gov.nasa.jpl.parakeet.foundation.reporting.ChannelReport
 import gov.nasa.jpl.parakeet.foundation.reporting.ChannelizedReportHandler
-import gov.nasa.jpl.parakeet.kernel.ReportHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import java.lang.AutoCloseable
 
 /**
  * Runs the report handler on the IO dispatcher, in parallel with the main thread.
+ * To reduce the overhead of adding reports to the cross-thread communication channel,
+ * buffers reports on this thread and sends them in batches.
  */
-class ParallelReportHandler private constructor(
+class ParallelReportHandler(
     scope: CoroutineScope,
     private val handler: ChannelizedReportHandler,
-    bufferCapacity: Int = Channel.BUFFERED,
+    private val batchSize: Int = 1000,
+    channelCapacity: Int = 62,
 ) : ChannelizedReportHandler, AutoCloseable {
-    private val channel = Channel<Any?>(bufferCapacity)
+    init {
+        require(channelCapacity >= 1) { "Channel capacity must be at least 1" }
+    }
+
+    private val channel = Channel<MutableList<Any?>>(channelCapacity)
     private val job = scope.launch(Dispatchers.IO) {
-        for (report in channel) {
-            handler(report)
+        for (batch in channel) {
+            for (report in batch) {
+                handler(report)
+            }
+            // Clear the batch immediately to free up memory sooner
+            batch.clear()
         }
     }
+
+    // Prepare the batch pool with pre-allocated array lists to minimize reallocations.
+    // We need the full channel capacity, plus one for the receiver, plus one for the sender,
+    // to make sure there's never any conflict or race conditions.
+    private val batchPool = Array(channelCapacity + 2) { ArrayList<Any?>(batchSize) }
+    private var currentBatchIndex = 0
+    private val currentBatch get() = batchPool[currentBatchIndex]
 
     // Unlike most ChannelizedReportHandlers, this defers the two specialized methods to the general report,
     // rather than splitting report into two specialized handlers.
@@ -36,12 +51,23 @@ class ParallelReportHandler private constructor(
         this(data)
     }
 
-    override fun invoke(p1: Any?) = runBlocking {
-        channel.send(p1)
+    override fun invoke(p1: Any?) {
+        currentBatch += p1
+        if (currentBatch.size >= batchSize) {
+            runBlocking {
+                // Send this batch over the channel.
+                channel.send(currentBatch)
+                // Advance to the next batch in the pool
+                currentBatchIndex = (currentBatchIndex + 1) % batchPool.size
+                // The receiver is responsible for clearing batches, so we don't need to do it here.
+            }
+        }
     }
 
     override fun close() {
         runBlocking {
+            // Remember to flush any reports buffered in currentBatch
+            if (currentBatch.isNotEmpty()) channel.send(currentBatch)
             // Close the channel to signal end-of-data to the reporter
             channel.close()
             // Join the reporter to await it reporting all remaining data in the channel
@@ -53,8 +79,8 @@ class ParallelReportHandler private constructor(
         /**
          * Run this [ChannelizedReportHandler] on a separate thread, in parallel with the simulator.
          */
-        fun <R> ChannelizedReportHandler.inParallel(bufferCapacity: Int = Channel.BUFFERED, block: (ParallelReportHandler) -> R) = runBlocking {
-            ParallelReportHandler(contextOf<CoroutineScope>(), this@inParallel, bufferCapacity).use(block)
+        fun <R> ChannelizedReportHandler.inParallel(batchSize: Int = 1000, channelCapacity: Int = 62, block: (ParallelReportHandler) -> R) = runBlocking {
+            ParallelReportHandler(contextOf<CoroutineScope>(), this@inParallel, batchSize, channelCapacity).use(block)
         }
     }
 }
