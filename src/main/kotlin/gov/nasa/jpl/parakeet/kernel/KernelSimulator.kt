@@ -49,6 +49,17 @@ class KernelSimulator(
     private class AwaitingTask(val await: Await) {
         var scheduledTask: TaskEntry? = null
         override fun toString(): String = "${await.rewait} -- $await"
+
+        // Putting AwaitingTask objects into the awaitingTasks hash set is a very hot path in the simulator.
+        // While it would be correct to use object identity for equality and hash code,
+        // using a unique ID is faster than object identity hash functions.
+        private val id = nextAwaitingTaskId++
+        override fun hashCode(): Int = id
+        override fun equals(other: Any?): Boolean = other is AwaitingTask && other.id == id
+
+        companion object {
+            private var nextAwaitingTaskId = 0
+        }
     }
     private val awaitingTasks: MutableSet<AwaitingTask> = mutableSetOf()
 
