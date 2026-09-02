@@ -32,6 +32,16 @@ class CellImpl<T> internal constructor(
     internal var branchNetEffect: Effect<T>? = null,
 ) : Cell<T> {
     override fun toString() = "$name = $value"
+
+    // Object identity for equality and hashing, but implemented via unique ID for performance.
+    // Adding cells to hash sets is a hot path in simulation, so keeping this performant is important.
+    private val id: Int = nextCellImplId++
+    override fun hashCode(): Int = id
+    override fun equals(other: Any?): Boolean = other is CellImpl<*> && other.id == id
+
+    private companion object {
+        private var nextCellImplId = 0
+    }
 }
 
 /** Internal bookkeeping class used by the simulator itself. */

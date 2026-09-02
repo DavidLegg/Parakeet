@@ -39,7 +39,7 @@ object ThinResourceMonad {
     inline fun<A> pure(a: A): ThinResource<A> = object : ThinResource<A> {
         context(scope: ResourceScope)
         override fun getDynamics(): A = a
-        override val name: Name = Name(a.toString())
+        override val name: Name get() = Name(a.toString())
         override fun toString(): String = name.toString()
     }
     inline fun<A, B> apply(a: ThinResource<A>, fn: ThinResource<(A) -> B>): ThinResource<B> =
