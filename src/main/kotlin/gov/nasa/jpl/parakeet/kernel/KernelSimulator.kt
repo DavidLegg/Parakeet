@@ -57,7 +57,7 @@ class KernelSimulator(
         override fun hashCode(): Int = id
         override fun equals(other: Any?): Boolean = other is AwaitingTask && other.id == id
 
-        companion object {
+        private companion object {
             private var nextAwaitingTaskId = 0
         }
     }
