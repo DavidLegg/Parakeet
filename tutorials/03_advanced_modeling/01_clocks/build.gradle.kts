@@ -13,7 +13,7 @@ dependencies {
 }
 
 application {
-    mainClass.set("parakeet_tutorials.HelloWorldKt")
+    mainClass.set("parakeet_tutorials.ClocksKt")
 }
 
 kotlin {
