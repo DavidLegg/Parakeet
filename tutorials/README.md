@@ -5,7 +5,7 @@ While you can just read these tutorials online, I recommend cloning this repo an
 All tutorials come with ready-to-execute code.
 
 I suggest that everyone read [Intro to Modeling][], as this introduces key concepts for all Parakeet projects.
-After that, I suggest that [Simulation][], as this explores ways of running simulation that are more appropriate in a production environment.
+After that, I suggest [Simulation][], as this explores ways of running simulation that are more appropriate in a production environment.
 
 From there, I suggest different sections depending on your role:
 - For those writing or maintaining models, I suggest [Advanced Modeling][].
