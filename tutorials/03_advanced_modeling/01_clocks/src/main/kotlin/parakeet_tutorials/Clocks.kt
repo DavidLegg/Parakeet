@@ -184,6 +184,7 @@ fun timerDemo() {
         spawn("Launch", task {
             await(launchTimer lessThanOrEquals ZERO)
             stdout.report("Launch!")
+            launchTimer.pause()
         })
         // We can start a countdown timer by setting the rate to -1.0 with resumeCountdown()
         val nominalLaunchTime = start + 6.hours
@@ -197,7 +198,7 @@ fun timerDemo() {
             await(launchTimer lessThanOrEquals 30.minutes)
             launchTimer.pause()
             delay(5.minutes)
-            launchTimer.resume()
+            launchTimer.resumeCountdown()
 
             // Simulate another 2 minute pause when the timer hits T-10 minutes,
             // plus putting another 5 minutes on the timer:
@@ -212,7 +213,7 @@ fun timerDemo() {
                     // This name shows up when debugging the model, making it easier to understand what's happening.
                     .named { "Add 5 minutes to $launchTimer" }
             )
-            launchTimer.resume()
+            launchTimer.resumeCountdown()
         })
     }
 
