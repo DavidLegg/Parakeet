@@ -31,7 +31,6 @@ import gov.nasa.jpl.parakeet.kernel.tasks.PureTask
 import gov.nasa.jpl.parakeet.kernel.tasks.PureTaskStep
 import gov.nasa.jpl.parakeet.kernel.tasks.Task
 import gov.nasa.jpl.parakeet.kernel.tasks.TaskStepResult
-import gov.nasa.jpl.parakeet.utilities.compose
 import gov.nasa.jpl.parakeet.utilities.identity
 import java.io.File
 import java.util.PriorityQueue
@@ -139,10 +138,10 @@ class KernelIncrementalSimulator(
                 value: T,
                 valueType: KType,
                 stepBy: (T, Duration) -> T,
-                mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>
+                applyConcurrentEffects: (List<Effect<T>>, T) -> T,
             ): Cell<T> =
                 // Create an incremental cell, and add its initial value to the graph
-                IncrementalCellImpl(name, valueType, stepBy, mergeConcurrentEffects).also {
+                IncrementalCellImpl(name, valueType, stepBy, applyConcurrentEffects).also {
                     cellNodes[it] = TreeMap<SimulationTime, CellNode<*>>().apply {
                         put(cellAllocTime, CellWriteNode(
                             nextNodeId++,
@@ -371,10 +370,8 @@ class KernelIncrementalSimulator(
                     // because batchStartTime has branch and step set to 0; causal and lexical "less than" agree.
                     // Further, such a node must exist because initial writes cannot participate in a merge.
                     .first { it.time < batchStartTime }
-                // Roll up the net effect of each branch, and merge according to this cell's merge rule.
-                val netEffect = node.cell.mergeConcurrentEffects(node.prior.map { it.branchNetEffect(batchStart) })
-                // Compute the value this node should have
-                netEffect(batchStart.value)
+                // Roll up the net effect of each branch, and apply them all together to compute the value this node should have
+                node.cell.applyConcurrentEffects(node.prior.map { it.branchNetEffect(batchStart) }, batchStart.value)
             }
             is CellStepNode<T> -> {
                 // Stepping many small increments can accrue numerical error in complex dynamics.
@@ -594,10 +591,11 @@ class KernelIncrementalSimulator(
         val effects = generateSequence(this) { it.prior?.takeUnless { it === batchStart } as CellWriteNode<T>? }
             .map { it.effect }
             .toList()
+            // Branch nodes are initially collected in reverse order, so use a reverse view to apply them
+            .asReversed()
         return {
             var result = it
-            // Branch nodes are collected in reverse order; iterate in reverse order to apply effects correctly
-            for (effect in effects.asReversed()) {
+            for (effect in effects) {
                 result = effect(result)
             }
             result
@@ -1213,7 +1211,7 @@ class KernelIncrementalSimulator(
         override val name: Name,
         override val valueType: KType,
         override val stepBy: (T, Duration) -> T,
-        override val mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>,
+        override val applyConcurrentEffects: (List<Effect<T>>, T) -> T,
     ) : Cell<T>
     @Suppress("UNCHECKED_CAST")
     private fun <T> getCellNodes(cell: Cell<T>) = cellNodes.getValue(cell) as TreeMap<SimulationTime, CellNode<T>>

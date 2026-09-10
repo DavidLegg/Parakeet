@@ -14,7 +14,7 @@ interface BasicInitScope {
         value: T,
         valueType: KType,
         stepBy: (T, Duration) -> T,
-        mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>,
+        applyConcurrentEffects: (List<Effect<T>>, T) -> T,
     ): Cell<T>
     fun spawn(name: Name, step: PureTaskStep)
     fun <T> read(cell: Cell<T>): T
@@ -27,8 +27,8 @@ interface BasicInitScope {
             value: T,
             valueType: KType,
             stepBy: (T, Duration) -> T,
-            mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>,
-        ): Cell<T> = scope.allocate(name, value, valueType, stepBy, mergeConcurrentEffects)
+            applyConcurrentEffects: (List<Effect<T>>, T) -> T,
+        ): Cell<T> = scope.allocate(name, value, valueType, stepBy, applyConcurrentEffects)
 
         context (scope: BasicInitScope)
         fun spawn(name: Name, step: PureTaskStep) = scope.spawn(name, step)

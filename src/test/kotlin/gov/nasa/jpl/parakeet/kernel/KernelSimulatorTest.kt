@@ -55,12 +55,12 @@ class KernelSimulatorTest {
         return SimulationResult(reports, fincon)
     }
 
-    private fun <T> applyAllEffects(effects: List<(T) -> T>): (T) -> T = {
-        var result = it
+    private fun <T> applyAllEffects(effects: List<Effect<T>>, value: T): T {
+        var result = value
         for (effect in effects) {
             result = effect(result)
         }
-        result
+        return result
     }
 
     context (scope: BasicInitScope)
@@ -269,7 +269,7 @@ class KernelSimulatorTest {
         val results = runSimulation(1.hours) {
             // Note: This is *not* a correct effect trait, but it's simple and lets us observe what's happening better.
             val x = allocate(Name("x"), 10, typeOf<Int>(), { x, _ -> x }, {
-                effects -> { 100 + applyAllEffects(effects)(it) }
+                effects, value -> 100 + applyAllEffects(effects, value)
             })
             val clock = allocateClockCell("clock", ZERO)
             spawn(Name("Task A")) {

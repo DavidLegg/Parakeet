@@ -11,9 +11,7 @@ interface Cell<T> {
     val name: Name
     val valueType: KType
     val stepBy: (T, Duration) -> T
-    // TODO: Replace this with an "applyConcurrentEffects" function that takes a list of effects and the starting value.
-    //   Doing so will avoid building the intermediate effect object. If such an object is needed, a closure can be built instead.
-    val mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>
+    val applyConcurrentEffects: (List<Effect<T>>, T) -> T
 }
 
 class CellImpl<T> internal constructor(
@@ -21,7 +19,7 @@ class CellImpl<T> internal constructor(
     internal var value: T,
     override val valueType: KType,
     override val stepBy: (T, Duration) -> T,
-    override val mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>,
+    override val applyConcurrentEffects: (List<Effect<T>>, T) -> T,
     /** Internal bookkeeping: a unique ID for this cell, used to accelerate equality checks and hashing */
     private val id: Int,
     /** Internal bookkeeping: the value this cell had the last time it was written to */

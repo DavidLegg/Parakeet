@@ -123,7 +123,7 @@ interface InitScope : SimulationScope, ResourceScope, ReportScope {
         value: T,
         valueType: KType,
         stepBy: (T, Duration) -> T,
-        mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>,
+        applyConcurrentEffects: (List<Effect<T>>, T) -> T,
     ): Cell<T>
 
     /**
@@ -140,8 +140,8 @@ interface InitScope : SimulationScope, ResourceScope, ReportScope {
             value: T,
             valueType: KType,
             stepBy: (T, Duration) -> T,
-            mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>,
-        ): Cell<T> = scope.allocate(name, value, valueType, stepBy, mergeConcurrentEffects)
+            applyConcurrentEffects: (List<Effect<T>>, T) -> T,
+        ): Cell<T> = scope.allocate(name, value, valueType, stepBy, applyConcurrentEffects)
 
         context (scope: InitScope)
         fun spawn(name: Name, block: suspend context (TaskScope) () -> TaskScopeResult) = scope.spawn(name, block)
@@ -162,8 +162,8 @@ interface InitScope : SimulationScope, ResourceScope, ReportScope {
                 value: T,
                 valueType: KType,
                 stepBy: (T, Duration) -> T,
-                mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>
-            ): Cell<T> = scope.allocate(Name(contextName) / name, value, valueType, stepBy, mergeConcurrentEffects)
+                applyConcurrentEffects: (List<Effect<T>>, T) -> T,
+            ): Cell<T> = scope.allocate(Name(contextName) / name, value, valueType, stepBy, applyConcurrentEffects)
 
             override fun spawn(name: Name, block: suspend context (TaskScope) () -> TaskScopeResult) =
                 scope.spawn(Name(contextName) / name, block)
@@ -197,8 +197,8 @@ fun InitScope(startTime: Instant): InitScope = object : InitScope {
         value: T,
         valueType: KType,
         stepBy: (T, Duration) -> T,
-        mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>
-    ): Cell<T> = basicInitScope.allocate(name, value, valueType, stepBy, mergeConcurrentEffects)
+        applyConcurrentEffects: (List<Effect<T>>, T) -> T,
+    ): Cell<T> = basicInitScope.allocate(name, value, valueType, stepBy, applyConcurrentEffects)
 
     override fun spawn(name: Name, block: suspend context(TaskScope) () -> TaskScopeResult) =
         // When spawning a task, build a simulation scope which incorporates the task's Name

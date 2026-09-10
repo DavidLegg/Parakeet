@@ -12,7 +12,7 @@ import gov.nasa.jpl.parakeet.foundation.SimulatorTest.TestModel.*
 import gov.nasa.jpl.parakeet.foundation.plans.*
 import gov.nasa.jpl.parakeet.foundation.plans.ActivityActions.spawn
 import gov.nasa.jpl.parakeet.foundation.reporting.Reporting.registered
-import gov.nasa.jpl.parakeet.foundation.resources.commutingEffects
+import gov.nasa.jpl.parakeet.foundation.resources.applyCommutingEffects
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.*
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.BooleanResourceOperations.and
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceMonad.map
@@ -580,7 +580,7 @@ class SimulatorTest {
             startTime = epoch,
             constructModel = {
                 // Unlike the next two tests where we'll have massive concurrency,
-                // autoMerge doesn't impose any additional performance burden on sequential effects.
+                // safelyApplyConcurrentEffects doesn't impose any additional performance burden on sequential effects.
                 val x = resource("x", Discrete(0)).registered()
 
                 spawn("Task", task {
@@ -608,10 +608,10 @@ class SimulatorTest {
             reportHandler = reports.reportHandler(),
             startTime = epoch,
             constructModel = {
-                // Although many tasks may operate concurrently on the same cell, autoMerge can't.
+                // Although many tasks may operate concurrently on the same cell, safelyApplyConcurrentEffects can't.
                 // Since it needs to check every permutation of concurrent effects, checking massively-concurrent effects like this is infeasible.
                 // The commutingEffects() trait is appropriate here, trading safety for speed.
-                val x = resource("x", Discrete(0), commutingEffects()).registered()
+                val x = resource("x", Discrete(0), ::applyCommutingEffects).registered()
 
                 for (i in 1 .. 1_000_000) {
                     spawn("Task $i", task {
@@ -638,10 +638,10 @@ class SimulatorTest {
             reportHandler = reports.reportHandler(),
             startTime = epoch,
             constructModel = {
-                // Although many tasks may operate concurrently on the same cell, autoMerge can't.
+                // Although many tasks may operate concurrently on the same cell, safelyApplyConcurrentEffects can't.
                 // Since it needs to check every permutation of concurrent effects, checking massively-concurrent effects like this is infeasible.
                 // The commutingEffects() trait is appropriate here, trading safety for speed.
-                val x = resource("x", Discrete(0), commutingEffects()).registered()
+                val x = resource("x", Discrete(0), ::applyCommutingEffects).registered()
 
                 for (i in 1 .. 10_000) {
                     spawn("Task $i", task {
