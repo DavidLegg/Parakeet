@@ -46,20 +46,21 @@ class KernelSimulator(
     private val modifiedCells: MutableSet<Cell<*>> = mutableSetOf()
     private val daemonNames: Set<Name>
 
-    private class AwaitingTask(val await: Await) {
+    // It would be more convenient for these "next ID" counters to be static.
+    // However, doing so would introduce state-sharing across simulators running in parallel, which can corrupt these counters.
+    // Since it's sufficient for these ids to be unique within a single simulator instance,
+    // we can use instance members on the simulator instead of synchronized static members.
+    private var nextCellId = 0
+    private var nextAwaitingTaskId = 0
+    private class AwaitingTask(val await: Await, private val id: Int) {
         var scheduledTask: TaskEntry? = null
         override fun toString(): String = "${await.rewait} -- $await"
 
         // Putting AwaitingTask objects into the awaitingTasks hash set is a very hot path in the simulator.
         // While it would be correct to use object identity for equality and hash code,
         // using a unique ID is faster than object identity hash functions.
-        private val id = nextAwaitingTaskId++
         override fun hashCode(): Int = id
         override fun equals(other: Any?): Boolean = other is AwaitingTask && other.id == id
-
-        private companion object {
-            private var nextAwaitingTaskId = 0
-        }
     }
     private val awaitingTasks: MutableSet<AwaitingTask> = mutableSetOf()
 
@@ -80,6 +81,7 @@ class KernelSimulator(
                 valueType,
                 stepBy,
                 mergeConcurrentEffects,
+                id = nextCellId++,
                 lastWrittenTime = time,
             ).also<CellImpl<T>> { cells += it }
 
@@ -266,7 +268,7 @@ class KernelSimulator(
             when (stepResult) {
                 is Complete -> break // Nothing to do
                 is Await -> {
-                    awaitingTasks += AwaitingTask(stepResult)
+                    awaitingTasks += AwaitingTask(stepResult, nextAwaitingTaskId++)
                     break
                 }
                 is Spawn -> {

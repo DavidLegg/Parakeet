@@ -38,6 +38,8 @@ tasks.register<Test>("long-tests") {
     useJUnitPlatform {
         includeTags("long-test")
     }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
 }
 
 kotlin {
