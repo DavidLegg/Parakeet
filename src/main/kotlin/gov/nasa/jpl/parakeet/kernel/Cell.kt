@@ -20,6 +20,8 @@ class CellImpl<T> internal constructor(
     override val valueType: KType,
     override val stepBy: (T, Duration) -> T,
     override val mergeConcurrentEffects: (Effect<T>, Effect<T>) -> Effect<T>,
+    /** Internal bookkeeping: a unique ID for this cell, used to accelerate equality checks and hashing */
+    private val id: Int,
     /** Internal bookkeeping: the value this cell had the last time it was written to */
     internal var lastWrittenValue: T = value,
     /** Internal bookkeeping: the absolute time this cell was last written to */
@@ -35,13 +37,8 @@ class CellImpl<T> internal constructor(
 
     // Object identity for equality and hashing, but implemented via unique ID for performance.
     // Adding cells to hash sets is a hot path in simulation, so keeping this performant is important.
-    private val id: Int = nextCellImplId++
     override fun hashCode(): Int = id
     override fun equals(other: Any?): Boolean = other is CellImpl<*> && other.id == id
-
-    private companion object {
-        private var nextCellImplId = 0
-    }
 }
 
 /** Internal bookkeeping class used by the simulator itself. */
