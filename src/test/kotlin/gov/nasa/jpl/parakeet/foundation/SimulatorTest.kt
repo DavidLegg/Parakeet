@@ -12,6 +12,7 @@ import gov.nasa.jpl.parakeet.foundation.SimulatorTest.TestModel.*
 import gov.nasa.jpl.parakeet.foundation.plans.*
 import gov.nasa.jpl.parakeet.foundation.plans.ActivityActions.spawn
 import gov.nasa.jpl.parakeet.foundation.reporting.Reporting.registered
+import gov.nasa.jpl.parakeet.foundation.resources.applyCommutingEffects
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.*
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.BooleanResourceOperations.and
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceMonad.map
@@ -22,8 +23,10 @@ import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOpera
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations.set
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DoubleResourceOperations.increase
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DoubleResourceOperations.plus
+import gov.nasa.jpl.parakeet.foundation.resources.discrete.IntResourceOperations.increment
 import gov.nasa.jpl.parakeet.foundation.resources.getValue
 import gov.nasa.jpl.parakeet.foundation.resources.named
+import gov.nasa.jpl.parakeet.foundation.resources.resource
 import gov.nasa.jpl.parakeet.foundation.serialization.ResultSerializer
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope.Companion.spawn
@@ -564,6 +567,97 @@ class SimulatorTest {
                 reports("2020-01-01T01:00:00Z", "RDS: deviceState = OFF")
                 reports("2020-01-01T01:30:00Z", "RDS: deviceState = STANDBY")
                 reports("2020-01-01T01:30:00Z", "RDS: deviceState = STANDBY")
+            }
+        }
+    }
+
+    @Test
+    fun `a task may emit many effects on one cell in one batch`() {
+        val reports = MutableSimulationResults()
+        val epoch = Instant.parse("2020-01-01T00:00:00Z")
+        val simulation = Simulator(
+            reportHandler = reports.reportHandler(),
+            startTime = epoch,
+            constructModel = {
+                // Unlike the next two tests where we'll have massive concurrency,
+                // safelyApplyConcurrentEffects doesn't impose any additional performance burden on sequential effects.
+                val x = resource("x", Discrete(0)).registered()
+
+                spawn("Task", task {
+                    delay(1.hours)
+                    repeat(1_000_000) {
+                        x.increment()
+                    }
+                })
+            }
+        )
+        simulation.runUntil(epoch + 2.hours)
+        with (reports) {
+            checkChannel("x") {
+                reportsDiscrete("2020-01-01T00:00:00Z", 0)
+                reportsDiscrete("2020-01-01T01:00:00Z", 1_000_000)
+            }
+        }
+    }
+
+    @Test
+    fun `many tasks may operate concurrently on the same cell`() {
+        val reports = MutableSimulationResults()
+        val epoch = Instant.parse("2020-01-01T00:00:00Z")
+        val simulation = Simulator(
+            reportHandler = reports.reportHandler(),
+            startTime = epoch,
+            constructModel = {
+                // Although many tasks may operate concurrently on the same cell, safelyApplyConcurrentEffects can't.
+                // Since it needs to check every permutation of concurrent effects, checking massively-concurrent effects like this is infeasible.
+                // The commutingEffects() trait is appropriate here, trading safety for speed.
+                val x = resource("x", Discrete(0), ::applyCommutingEffects).registered()
+
+                for (i in 1 .. 1_000_000) {
+                    spawn("Task $i", task {
+                        delay(1.hours)
+                        x.increment()
+                    })
+                }
+            }
+        )
+        simulation.runUntil(epoch + 2.hours)
+        with (reports) {
+            checkChannel("x") {
+                reportsDiscrete("2020-01-01T00:00:00Z", 0)
+                reportsDiscrete("2020-01-01T01:00:00Z", 1_000_000)
+            }
+        }
+    }
+
+    @Test
+    fun `many tasks may concurrently emit many effects each, all on the same cell`() {
+        val reports = MutableSimulationResults()
+        val epoch = Instant.parse("2020-01-01T00:00:00Z")
+        val simulation = Simulator(
+            reportHandler = reports.reportHandler(),
+            startTime = epoch,
+            constructModel = {
+                // Although many tasks may operate concurrently on the same cell, safelyApplyConcurrentEffects can't.
+                // Since it needs to check every permutation of concurrent effects, checking massively-concurrent effects like this is infeasible.
+                // The commutingEffects() trait is appropriate here, trading safety for speed.
+                val x = resource("x", Discrete(0), ::applyCommutingEffects).registered()
+
+                for (i in 1 .. 10_000) {
+                    spawn("Task $i", task {
+                        delay(1.hours)
+                        repeat(1_000) {
+                            x.increment()
+                        }
+                    })
+                }
+            }
+        )
+        simulation.runUntil(epoch + 2.hours)
+        with (reports) {
+            checkChannel("x") {
+                reportsDiscrete("2020-01-01T00:00:00Z", 0)
+                reportsDiscrete("2020-01-01T01:00:00Z", 10_000_000)
             }
         }
     }

@@ -10,7 +10,6 @@ import gov.nasa.jpl.parakeet.kernel.tasks.PureTask.TaskHistoryStep
 import gov.nasa.jpl.parakeet.kernel.tasks.PureTask.TaskHistoryStep.*
 import gov.nasa.jpl.parakeet.kernel.tasks.PureTaskStep
 import gov.nasa.jpl.parakeet.kernel.tasks.TaskHistoryProvider.Companion.provide
-import gov.nasa.jpl.parakeet.utilities.andThen
 import gov.nasa.jpl.parakeet.utilities.named
 import kotlinx.serialization.Serializable
 import org.junit.jupiter.api.Test
@@ -56,13 +55,21 @@ class KernelSimulatorTest {
         return SimulationResult(reports, fincon)
     }
 
+    private fun <T> applyAllEffects(effects: List<Effect<T>>, value: T): T {
+        var result = value
+        for (effect in effects) {
+            result = effect(result)
+        }
+        return result
+    }
+
     context (scope: BasicInitScope)
     private fun allocateIntCounterCell(name: String, value: Int) = allocate(
         Name(name),
         value,
         typeOf<Int>(),
         { x, _ -> x },
-        { l, r -> l andThen r }
+        ::applyAllEffects,
     )
 
     @Serializable
@@ -74,7 +81,7 @@ class KernelSimulatorTest {
         LinearDynamics(value, rate),
         typeOf<LinearDynamics>(),
         ::linearDynamicsStep,
-        { l, r -> l andThen r }
+        ::applyAllEffects,
     )
 
     context (scope: BasicInitScope)
@@ -83,7 +90,7 @@ class KernelSimulatorTest {
         t,
         typeOf<Duration>(),
         { s, delta -> s + delta },
-        { l, r -> l andThen r }
+        ::applyAllEffects,
     )
 
     /**
@@ -178,7 +185,7 @@ class KernelSimulatorTest {
             // This is *not* a good way to implement stepping, since multiple steps, each < 1 minute,
             // will not change the value, but a single >1 minute step would.
             // It's fine for this test, though.
-            val x = allocate(Name("x"), 0, typeOf<Int>(), { x, t -> x + (t / 1.minutes).toInt() }, { l, r -> l andThen r })
+            val x = allocate(Name("x"), 0, typeOf<Int>(), { x, t -> x + (t / 1.minutes).toInt() }, ::applyAllEffects)
             val clock = allocateClockCell("clock", ZERO)
             spawn(Name("step cell")) {
                 val xVal = it.read(x)
@@ -261,7 +268,9 @@ class KernelSimulatorTest {
     fun concurrent_effects_are_joined_using_effect_trait() {
         val results = runSimulation(1.hours) {
             // Note: This is *not* a correct effect trait, but it's simple and lets us observe what's happening better.
-            val x = allocate(Name("x"), 10, typeOf<Int>(), { x, _ -> x }, { l, r -> { 100 + r(l(it)) } })
+            val x = allocate(Name("x"), 10, typeOf<Int>(), { x, _ -> x }, {
+                effects, value -> 100 + applyAllEffects(effects, value)
+            })
             val clock = allocateClockCell("clock", ZERO)
             spawn(Name("Task A")) {
                 it.emit(x) { it + 5 }

@@ -1,10 +1,8 @@
 package gov.nasa.jpl.parakeet.foundation.resources
 
 import gov.nasa.jpl.parakeet.utilities.Reflection.withArg
-import gov.nasa.jpl.parakeet.utilities.andThen
 import gov.nasa.jpl.parakeet.utilities.named
 import gov.nasa.jpl.parakeet.kernel.*
-import gov.nasa.jpl.parakeet.foundation.resources.AutoEffect.Companion.autoMerge
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope.Companion.allocate
 import gov.nasa.jpl.parakeet.foundation.tasks.ResourceScope
@@ -28,7 +26,7 @@ interface MutableResource<D> : Resource<D> {
     fun emit(effect: ResourceEffect<D>)
 }
 typealias ResourceEffect<D> = Effect<Result<FullDynamics<D>>>
-typealias MergeResourceEffect<D> = (ResourceEffect<D>, ResourceEffect<D>) -> ResourceEffect<D>
+typealias ApplyConcurrentResourceEffect<D> = (List<ResourceEffect<D>>, Result<FullDynamics<D>>) -> Result<FullDynamics<D>>
 
 class FaultedResourceException(
     message: String,
@@ -72,33 +70,30 @@ context (scope: InitScope)
 inline fun <V, reified D : Dynamics<V, D>> resource(
     name: String,
     initialDynamics: D,
-    noinline mergeConcurrentEffects: MergeResourceEffect<D> = ::autoMerge,
-) = resource(name, initialDynamics, typeOf<D>(), mergeConcurrentEffects)
+    noinline applyConcurrentEffects: ApplyConcurrentResourceEffect<D> = ::safelyApplyConcurrentEffects,
+) = resource(name, initialDynamics, typeOf<D>(), applyConcurrentEffects)
 
 context (scope: InitScope)
 fun <V, D : Dynamics<V, D>> resource(
     name: String,
     initialDynamics: D,
     dynamicsType: KType,
-    mergeConcurrentEffects: MergeResourceEffect<D> = ::autoMerge,
-) = resource(name, DynamicsMonad.pure(initialDynamics), FullDynamics::class.withArg(dynamicsType), mergeConcurrentEffects)
+    applyConcurrentEffects: ApplyConcurrentResourceEffect<D> = ::safelyApplyConcurrentEffects,
+) = resource(name, DynamicsMonad.pure(initialDynamics), FullDynamics::class.withArg(dynamicsType), applyConcurrentEffects)
 
 context (scope: InitScope)
 fun <V, D : Dynamics<V, D>> resource(
     name: String,
-    // TODO: Should this actually remove the Expiring<> layer?
-    //   Rationale - if a cell's dynamics expire, so what? There's nothing it can intrinsically do about it.
-    //   OTOH, if a task writes to the cell no later than that expiry, that triggers re-evaluations already.
     initialDynamics: FullDynamics<D>,
     fullDynamicsType: KType,
-    mergeConcurrentEffects: MergeResourceEffect<D> = ::autoMerge,
+    applyConcurrentEffects: ApplyConcurrentResourceEffect<D> = ::safelyApplyConcurrentEffects,
 ): MutableResource<D> {
     val cell = allocate(
         Name(name),
         Result.success(initialDynamics),
         Result::class.withArg(fullDynamicsType),
         { d, t -> d.mapCatching { it.step(t) } },
-        mergeConcurrentEffects,
+        applyConcurrentEffects,
     )
 
     return object : MutableResource<D> {
@@ -115,10 +110,24 @@ fun <V, D : Dynamics<V, D>> resource(
     }
 }
 
-fun <D> commutingEffects(): MergeResourceEffect<D> = { left, right -> left andThen right }
+/**
+ * Apply concurrent effects by assuming they commute and applying them in an arbitrary order.
+ * This function conforms to the [ApplyConcurrentResourceEffect] signature.
+ */
+fun <D> applyCommutingEffects(effects: List<ResourceEffect<D>>, value: Result<FullDynamics<D>>): Result<FullDynamics<D>> {
+    var result = value
+    for (effect in effects) {
+        result = effect(result)
+    }
+    return result
+}
 
-fun <D> noncommutingEffects(): MergeResourceEffect<D> = { left, right ->
-    throw IllegalArgumentException("Non-commuting concurrent effects: $left vs. $right - Cell does not support concurrent effects.")
+/**
+ * Apply concurrent effects trivially by assuming they don't commute and throwing an [IllegalArgumentException] instead.
+ * This function conforms to the [ApplyConcurrentResourceEffect] signature.
+ */
+fun <D> applyNoncommutingEffects(effects: List<ResourceEffect<D>>, value: Result<FullDynamics<D>>): Result<FullDynamics<D>> {
+    throw IllegalArgumentException("Non-commuting concurrent effects: $effects - Cell does not support concurrent effects.")
 }
 
 context (scope: SimulationScope)
