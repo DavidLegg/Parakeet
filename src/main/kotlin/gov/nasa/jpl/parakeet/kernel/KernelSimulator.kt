@@ -2,7 +2,6 @@ package gov.nasa.jpl.parakeet.kernel
 
 import gov.nasa.jpl.parakeet.kernel.tasks.*
 import gov.nasa.jpl.parakeet.kernel.tasks.TaskStepResult.*
-import gov.nasa.jpl.parakeet.utilities.andThen
 import java.util.*
 import java.util.Comparator.comparing
 import kotlin.reflect.KType
@@ -74,7 +73,7 @@ class KernelSimulator(
                 value: T,
                 valueType: KType,
                 stepBy: (T, Duration) -> T,
-                mergeConcurrentEffects: (Effect<T>, Effect<T>) -> Effect<T>
+                mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>
             ): Cell<T> = CellImpl(
                 name,
                 incon?.cells?.get(name, valueType) ?: value,
@@ -194,9 +193,21 @@ class KernelSimulator(
             runTask(task)
         }
 
-        fun <T> Cell<T>.applyTrunkNetEffect() {
-            (this as CellImpl<T>).value = trunkNetEffect!!.value ?: trunkNetEffect!!.effect(value)
-            trunkNetEffect = null
+        fun <T> Cell<T>.applyBatchNetEffect() {
+            (this as CellImpl<T>).value = batchNetEffect!!.value ?:
+                // Combine all branches' effects using the model-provided merge operator
+                mergeConcurrentEffects(batchNetEffect!!.effects.map { effectsForOneBranch ->
+                    // For each branch's list of effects, build an effect which applies all of them sequentially
+                    {
+                        var result = it
+                        for (effect in effectsForOneBranch) {
+                            result = effect(result)
+                        }
+                        result
+                    }
+                })(value)
+
+            batchNetEffect = null
             // Record the merged value as the last-written value to step up from later
             lastWrittenValue = value
             // No need to update lastWrittenTime - we're merging at least one branch at this time,
@@ -207,7 +218,7 @@ class KernelSimulator(
         // Also collect all the reactions to effects made by this batch.
         // Since awaitingTasks is a set, it de-duplicates reactions automatically.
         modifiedCells.flatMapTo(awaitingTasks) {
-            it.applyTrunkNetEffect()
+            it.applyBatchNetEffect()
             cellListeners[it] ?: emptySet()
         }
         modifiedCells.clear()
@@ -228,12 +239,18 @@ class KernelSimulator(
             override fun <V> read(cell: Cell<V>): V = (cell as CellImpl<V>).value
 
             override fun <V> emit(cell: Cell<V>, effect: Effect<V>) {
-                // Store the trunk value if this is the first write to this cell
-                (cell as CellImpl<V>).trunkValue = cell.trunkValue ?: cell.value
+                cell as CellImpl<V>
+                // Record this effect for this branch
+                if (cell.branchEffects == null) {
+                    // If branchEffects is null, this is the first effect for this cell on this branch
+                    // Build the branchEffects list, and store the trunk value too
+                    cell.branchEffects = mutableListOf(effect)
+                    cell.trunkValue = cell.value
+                } else {
+                    cell.branchEffects!!.add(effect)
+                }
                 // Update the value by directly applying the effect
                 cell.value = effect(cell.value)
-                // Record the new net effect of this branch, composing with prior effects if present
-                cell.branchNetEffect = cell.branchNetEffect?.andThen(effect) ?: effect
                 // Record that this is the last written value, and when it was written
                 cell.lastWrittenValue = cell.value
                 cell.lastWrittenTime = time
@@ -284,19 +301,21 @@ class KernelSimulator(
         }
 
         fun <T> Cell<T>.revertBranch() {
-            // Merge the branch net effect into the trunk net effect:
-            (this as CellImpl<T>).trunkNetEffect = if (trunkNetEffect == null) {
-                // This is the only branch to modify this cell; adopt the branch net effect and record our net value
-                NetEffect(value, branchNetEffect!!)
+            this as CellImpl<T>
+            // Merge the branch net effect into the batch net effect:
+            if (batchNetEffect == null) {
+                // This is the only branch to modify this cell; adopt the branch effects and record our net value
+                batchNetEffect = NetEffect(value, mutableListOf(branchEffects!!))
             } else {
-                // Otherwise, concurrent-merge the effects from trunk and branch, and throw away the net value.
-                NetEffect(null, mergeConcurrentEffects(trunkNetEffect?.effect!!, branchNetEffect!!))
+                // Otherwise, append the branch effects to the batch, and throw away the net value.
+                batchNetEffect!!.effects.add(branchEffects!!)
+                batchNetEffect!!.value = null
             }
             // Revert the cell value to the trunk value
             value = trunkValue!!
             // Finally, reset the branch bookkeeping variables to mark this cell in "trunk" state
             trunkValue = null
-            branchNetEffect = null
+            branchEffects = null
         }
 
         // Collect the net effects of this task, and reset all cells to "trunk" state.

@@ -1,10 +1,8 @@
 package gov.nasa.jpl.parakeet.foundation.resources
 
 import gov.nasa.jpl.parakeet.utilities.Reflection.withArg
-import gov.nasa.jpl.parakeet.utilities.andThen
 import gov.nasa.jpl.parakeet.utilities.named
 import gov.nasa.jpl.parakeet.kernel.*
-import gov.nasa.jpl.parakeet.foundation.resources.AutoEffect.Companion.autoMerge
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope.Companion.allocate
 import gov.nasa.jpl.parakeet.foundation.tasks.ResourceScope
@@ -28,7 +26,7 @@ interface MutableResource<D> : Resource<D> {
     fun emit(effect: ResourceEffect<D>)
 }
 typealias ResourceEffect<D> = Effect<Result<FullDynamics<D>>>
-typealias MergeResourceEffect<D> = (ResourceEffect<D>, ResourceEffect<D>) -> ResourceEffect<D>
+typealias MergeResourceEffect<D> = (List<ResourceEffect<D>>) -> ResourceEffect<D>
 
 class FaultedResourceException(
     message: String,
@@ -115,10 +113,18 @@ fun <V, D : Dynamics<V, D>> resource(
     }
 }
 
-fun <D> commutingEffects(): MergeResourceEffect<D> = { left, right -> left andThen right }
+fun <D> commutingEffects(): MergeResourceEffect<D> = { effects ->
+    {
+        var result = it
+        for (effect in effects) {
+            result = effect(result)
+        }
+        result
+    }
+}
 
-fun <D> noncommutingEffects(): MergeResourceEffect<D> = { left, right ->
-    throw IllegalArgumentException("Non-commuting concurrent effects: $left vs. $right - Cell does not support concurrent effects.")
+fun <D> noncommutingEffects(): MergeResourceEffect<D> = {
+    throw IllegalArgumentException("Non-commuting concurrent effects: $it - Cell does not support concurrent effects.")
 }
 
 context (scope: SimulationScope)

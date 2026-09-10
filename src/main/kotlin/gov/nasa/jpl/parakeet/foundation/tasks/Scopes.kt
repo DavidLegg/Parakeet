@@ -123,7 +123,7 @@ interface InitScope : SimulationScope, ResourceScope, ReportScope {
         value: T,
         valueType: KType,
         stepBy: (T, Duration) -> T,
-        mergeConcurrentEffects: (Effect<T>, Effect<T>) -> Effect<T>,
+        mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>,
     ): Cell<T>
 
     /**
@@ -140,7 +140,7 @@ interface InitScope : SimulationScope, ResourceScope, ReportScope {
             value: T,
             valueType: KType,
             stepBy: (T, Duration) -> T,
-            mergeConcurrentEffects: (Effect<T>, Effect<T>) -> Effect<T>,
+            mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>,
         ): Cell<T> = scope.allocate(name, value, valueType, stepBy, mergeConcurrentEffects)
 
         context (scope: InitScope)
@@ -162,7 +162,7 @@ interface InitScope : SimulationScope, ResourceScope, ReportScope {
                 value: T,
                 valueType: KType,
                 stepBy: (T, Duration) -> T,
-                mergeConcurrentEffects: (Effect<T>, Effect<T>) -> Effect<T>
+                mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>
             ): Cell<T> = scope.allocate(Name(contextName) / name, value, valueType, stepBy, mergeConcurrentEffects)
 
             override fun spawn(name: Name, block: suspend context (TaskScope) () -> TaskScopeResult) =
@@ -197,7 +197,7 @@ fun InitScope(startTime: Instant): InitScope = object : InitScope {
         value: T,
         valueType: KType,
         stepBy: (T, Duration) -> T,
-        mergeConcurrentEffects: (Effect<T>, Effect<T>) -> Effect<T>
+        mergeConcurrentEffects: (List<Effect<T>>) -> Effect<T>
     ): Cell<T> = basicInitScope.allocate(name, value, valueType, stepBy, mergeConcurrentEffects)
 
     override fun spawn(name: Name, block: suspend context(TaskScope) () -> TaskScopeResult) =
