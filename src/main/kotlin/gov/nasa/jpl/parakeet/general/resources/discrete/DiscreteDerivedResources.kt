@@ -18,18 +18,21 @@ object DiscreteDerivedResources {
      */
     fun <T> discreteDerivedResource(block: context (DiscreteDerivedResourceScope) () -> T): DiscreteResource<T> {
         return ThinResource {
-            var expiry = Duration.INFINITE
+            val sourceExpiries = mutableListOf<() -> Duration>()
             val resultValue = block(object : DiscreteDerivedResourceScope {
                 override fun <V> getValue(resource: DiscreteResource<V>): V {
                     // This getDynamics call is implicitly using the ResourceScope of the returned resource.
                     val dynamics = resource.getDynamics()
-                    // We'll implicitly fold in the expiry information
-                    expiry = expiry or dynamics.expiry
+                    // Hold onto the getter for the expiry of each source resource
+                    sourceExpiries.add(dynamics::expiry)
                     return dynamics.data.value
                 }
             })
-            // Having sampled all our source resources and computed our expiry safely, return the result.
-            Expiring(Discrete(resultValue), expiry)
+            // Having sampled all our source resources safely, return the result.
+            Expiring(Discrete(resultValue)) {
+                // To compute our expiry, fold together the expiries of all our source resources
+                sourceExpiries.fold(Duration.INFINITE) { acc, expiry -> acc or expiry() }
+            }
         }
     }
 

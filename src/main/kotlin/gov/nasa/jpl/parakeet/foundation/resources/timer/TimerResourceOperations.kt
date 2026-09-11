@@ -91,24 +91,26 @@ object TimerResourceOperations {
             val o = otherDynamics.data
 
             val initialResult = bipredicate(t.time, o.time)
-            val deltaRate = o.rate - t.rate
-            val estimatedRoot = if (deltaRate == 0.0) INFINITE else (t.time - o.time) / deltaRate
-            val expiry = if (estimatedRoot.isInfinite()) INFINITE else {
-                (-2..2)
-                    // TODO: Think through whether we need to handle coarse epsilon here, and if so, how
-                    .map { estimatedRoot + it * EPSILON }
-                    .firstOrNull { possibleRoot ->
-                        val projectedT = t.time + t.rate * possibleRoot
-                        val projectedO = o.time + o.rate * possibleRoot
-                        bipredicate(projectedT, projectedO) != initialResult
-                    }
-            }
-            checkNotNull(expiry) { "Root finding failed on resource $this" }
-            var finalExpiry = thisDynamics.expiry or otherDynamics.expiry
-            if (expiry > ZERO) finalExpiry = finalExpiry or expiry
             // It's possible, especially for "satisfied at 0" cases, that the root is at or before 0 too.
             // This isn't a failure of root-finding, but it isn't a meaningful expiry either.
-            Expiring(Discrete(initialResult), finalExpiry)
+            Expiring(Discrete(initialResult)) {
+                val deltaRate = o.rate - t.rate
+                val estimatedRoot = if (deltaRate == 0.0) INFINITE else (t.time - o.time) / deltaRate
+                val expiry = if (estimatedRoot.isInfinite()) INFINITE else {
+                    (-2..2)
+                        // TODO: Think through whether we need to handle coarse epsilon here, and if so, how
+                        .map { estimatedRoot + it * EPSILON }
+                        .firstOrNull { possibleRoot ->
+                            val projectedT = t.time + t.rate * possibleRoot
+                            val projectedO = o.time + o.rate * possibleRoot
+                            bipredicate(projectedT, projectedO) != initialResult
+                        }
+                }
+                checkNotNull(expiry) { "Root finding failed on resource $this" }
+                var finalExpiry = thisDynamics.expiry or otherDynamics.expiry
+                if (expiry > ZERO) finalExpiry = finalExpiry or expiry
+                finalExpiry
+            }
         }
 
     infix fun TimerResource.lessThan(other: TimerResource): BooleanResource =

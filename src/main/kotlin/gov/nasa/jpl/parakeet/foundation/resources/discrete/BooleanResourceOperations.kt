@@ -35,7 +35,7 @@ object BooleanResourceOperations {
             if (a.data.value) {
                 try {
                     val b = other.getDynamics()
-                    return@Resource Expiring(b.data, a.expiry or b.expiry)
+                    return@Resource Expiring(b.data) { a.expiry or b.expiry }
                 } catch (e: FaultedResourceException) {
                     throw e.expiringAt(a.expiry)
                 }
@@ -49,7 +49,7 @@ object BooleanResourceOperations {
             if (!a.data.value) {
                 try {
                     val b = other.getDynamics()
-                    return@Resource Expiring(b.data, a.expiry or b.expiry)
+                    return@Resource Expiring(b.data) { a.expiry or b.expiry }
                 } catch (e: FaultedResourceException) {
                     throw e.expiringAt(a.expiry)
                 }
@@ -76,7 +76,7 @@ object BooleanResourceOperations {
                 } else {
                     elseCase.getDynamics()
                 }
-                Expiring(result.data, condition.expiry or result.expiry)
+                Expiring(result.data) { condition.expiry or result.expiry }
             } catch (e: FaultedResourceException) {
                 throw e.expiringAt(condition.expiry)
             }

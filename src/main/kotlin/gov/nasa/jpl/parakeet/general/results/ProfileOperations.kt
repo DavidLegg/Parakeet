@@ -65,6 +65,7 @@ object ProfileOperations {
                     // Finally, use that to look up which dynamics is active, and how long to step it forward:
                     dynamics = activeSegment.data.step(time - activeSegment.time)
                 }
+                // Eagerly compute expiry to avoid holding a reference to data, which may be a large list
                 return Expiring(dynamics, data.getOrNull(nextSegmentIndex)?.time?.let { it - time } ?: INFINITE)
             }
 

@@ -1,17 +1,58 @@
 package gov.nasa.jpl.parakeet.foundation.resources
 
+import gov.nasa.jpl.parakeet.utilities.InvertibleFunction
+import gov.nasa.jpl.parakeet.utilities.Serialization.alias
 import gov.nasa.jpl.parakeet.utilities.curry
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.INFINITE
 
+@Serializable(with = Expiring.ExpiringSerializer::class)
+interface Expiring<T> {
+    val data: T
+    val expiry: Duration
+
+    class ExpiringSerializer<T>(tSerializer: KSerializer<T>) : KSerializer<Expiring<T>> by
+        ExpiringImpl.serializer(tSerializer).alias(InvertibleFunction.of(
+            { it },
+            { ExpiringImpl(it.data, it.expiry) }
+        ))
+}
+
+/**
+ * Data class implementation of [Expiring], especially useful for serialization.
+ */
 @Serializable
-data class Expiring<T>(val data: T, val expiry: Duration) {
+private data class ExpiringImpl<T>(override val data: T, override val expiry: Duration) : Expiring<T> {
     override fun toString(): String = if (expiry == INFINITE) {
         data.toString()
     } else {
         "$data (until $expiry)"
     }
+
+    // To keep the illusion of all Expiring<*> instances being a data class,
+    // use value equality and a corresponding hash code.
+    // Use this same implementation of equals and hashCode for all Expiring implementations.
+    override fun equals(other: Any?): Boolean {
+        return other is Expiring<*> && data == other.data && expiry == other.expiry
+    }
+    override fun hashCode(): Int = data.hashCode() + 31 * expiry.hashCode()
+}
+
+fun <T> Expiring(data: T, expiry: Duration = INFINITE): Expiring<T> = ExpiringImpl(data, expiry)
+
+/**
+ * Alternate constructor for [Expiring] that lazily computes the expiry.
+ */
+fun <T> Expiring(data: T, expiryFn: () -> Duration): Expiring<T> = object : Expiring<T> {
+    override val data: T = data
+    override val expiry: Duration by lazy(expiryFn)
+
+    override fun equals(other: Any?): Boolean {
+        return other is Expiring<*> && data == other.data && expiry == other.expiry
+    }
+    override fun hashCode(): Int = data.hashCode() + 31 * expiry.hashCode()
 }
 
 // Specialized version of "minOf" for Durations, meant for "expiry" calculations
@@ -21,17 +62,19 @@ data class Expiring<T>(val data: T, val expiry: Duration) {
 infix fun Duration.or(other: Duration): Duration =
     if (this <= other) this else other
 
-fun <D : Dynamics<*, D>> Expiring<D>.step(time: Duration) = Expiring(data.step(time), expiry - time)
+fun <D : Dynamics<*, D>> Expiring<D>.step(time: Duration) = Expiring(data.step(time)) { expiry - time }
 
+// In monadic code, use the lazily-computed expiry constructors.
+// Monadic code is often used when sampling resources, where we often don't care about the expiry.
 @Suppress("NOTHING_TO_INLINE")
 object ExpiringMonad {
-    inline fun <A> pure(a: A): Expiring<A> = Expiring(a, INFINITE)
+    inline fun <A> pure(a: A): Expiring<A> = Expiring(a)
     inline fun <A, B> apply(a: Expiring<A>, f: Expiring<(A) -> B>) =
-        Expiring(f.data(a.data), f.expiry or a.expiry)
-    inline fun <A> join(a: Expiring<Expiring<A>>) = Expiring(a.data.data, a.expiry or a.data.expiry)
+        Expiring(f.data(a.data)) { f.expiry or a.expiry }
+    inline fun <A> join(a: Expiring<Expiring<A>>) = Expiring(a.data.data) { a.expiry or a.data.expiry }
     // Although map can be defined in terms of apply and join, writing it this way instead makes it inlinable.
     // This can be a major boon to performance, so it's worth the redundant code
-    inline fun <A, B> map(a: Expiring<A>, f: (A) -> B): Expiring<B> = Expiring(f(a.data), a.expiry)
+    inline fun <A, B> map(a: Expiring<A>, f: (A) -> B): Expiring<B> = Expiring(f(a.data), a::expiry)
     // Auxiliary methods - These are defined only in terms of pure/apply/join above, and can be copied from Monad to Monad
     inline fun <A, B> apply(f: Expiring<(A) -> B>): (Expiring<A>) -> Expiring<B> = { apply(it, f) }
     inline fun <A, B> map(crossinline f: (A) -> B): (Expiring<A>) -> Expiring<B> = { map(it, f) }
