@@ -148,8 +148,10 @@ class Polynomial private constructor(private val coefficients: DoubleArray) : Dy
     private fun greaterThan(other: Polynomial, strict: Boolean): Expiring<Discrete<Boolean>> {
         val comp = if (strict) { x: Double, y: Double -> x > y } else { x: Double, y: Double -> x >= y }
         val result = comp(this.value(), other.value())
-        val expiry = (this - other).findExpiryNearRoot { t -> comp(this.step(t).value(), other.step(t).value()) != result }
-        return Expiring(Discrete(result), expiry)
+        // Lazily compute expiry, which may be far more expensive than computing the value
+        return Expiring(Discrete(result)) {
+            (this - other).findExpiryNearRoot { t -> comp(step(t).value(), other.step(t).value()) != result }
+        }
     }
 
     infix fun greaterThan(other: Polynomial): Expiring<Discrete<Boolean>> {
@@ -196,8 +198,10 @@ class Polynomial private constructor(private val coefficients: DoubleArray) : Dy
      */
     fun dominates(other: Polynomial): Expiring<Discrete<Boolean>> {
         val result = this._dominates(other)
-        val expiry = (this - other).findExpiryNearRoot { t -> this.step(t)._dominates(other.step(t)) != result }
-        return Expiring(Discrete(result), expiry)
+        // Lazily compute expiry, which may be far more expensive than computing the value
+        return Expiring(Discrete(result)) {
+            (this - other).findExpiryNearRoot { t -> step(t)._dominates(other.step(t)) != result }
+        }
     }
 
     fun min(other: Polynomial): Expiring<Polynomial> {

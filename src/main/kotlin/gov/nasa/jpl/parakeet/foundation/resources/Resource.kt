@@ -120,7 +120,7 @@ object ResourceMonad {
     inline fun<A, B> apply(a: Resource<A>, fn: Resource<(A) -> B>): Resource<B> =
         ThinResourceMonad.apply(a, ThinResourceMonad.map(fn, DynamicsMonad::apply))
     inline fun<A> distribute(a: FullDynamics<ThinResource<A>>): Resource<A> =
-        Resource { Expiring(a.data.getDynamics(), a.expiry) }
+        Resource { Expiring(a.data.getDynamics(), a::expiry) }
     inline fun<A> join(a: Resource<Resource<A>>): Resource<A> =
         ThinResourceMonad.map(ThinResourceMonad.join(ThinResourceMonad.map(a, ResourceMonad::distribute)), DynamicsMonad::join)
     // Although map can be defined in terms of apply and join, writing it this way instead makes it inlinable.
