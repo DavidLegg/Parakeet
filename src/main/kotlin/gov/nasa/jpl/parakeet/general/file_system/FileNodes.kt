@@ -17,10 +17,13 @@ sealed interface FileNode {
     val createdTime: Instant
     val modifiedTime: Instant
 
+    // TODO: Digest should be private
     /** SHA-256 digest of this node and all its descendants. Used only for equality and hashing. */
     val digest: ByteArray
 }
 
+
+// TODO: Be a little more efficient when copying files - maybe make a copy constructor that bypasses copying bytes
 /**
  * Opaque, immutable bytes for a [File]'s content.
  * Defensively copies on the way in and out, and compares by content.
@@ -59,9 +62,11 @@ class File(
         update(createdTime)
         update(modifiedTime)
         update(size)
+        // We can just update with the content if it's non-null
         content?.let { update(1); update(it.toByteArray()) } ?: update(0)
     }
 
+    // TODO: Use a record instead of a copy constructor
     fun copy(
         createdTime: Instant = this.createdTime,
         modifiedTime: Instant = this.modifiedTime,
@@ -122,12 +127,15 @@ class Directory(
 private const val FILE_TAG: Byte = 'F'.code.toByte()
 private const val DIRECTORY_TAG: Byte = 'D'.code.toByte()
 
+// TODO: Re-write these methods as extensions on MessageDigest (if there aren't extensions already) which shift the bytes in without allocating byte arrays
 private class DigestBuilder(private val md: MessageDigest) {
     fun update(b: Byte) = md.update(b)
+    // TODO: (BUG) truncates the int to a byte
     fun update(b: Int) = md.update(b.toByte())
     fun update(bytes: ByteArray) = md.update(bytes)
+    // TODO: Could be a little more efficient here
     fun update(n: Long) = md.update(ByteBuffer.allocate(Long.SIZE_BYTES).putLong(n).array())
-    fun update(t: Instant) { update(t.epochSeconds); update(t.nanosecondsOfSecond.toLong()) }
+    fun update(t: Instant) { update(t.epochSeconds); update(t.nanosecondsOfSecond) }
 }
 
 private fun sha256(block: DigestBuilder.() -> Unit): ByteArray =

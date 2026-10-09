@@ -29,6 +29,7 @@ import kotlin.reflect.typeOf
  * [get] and [change] are the only primitives. See the extension functions in [FileSystemOperations] for convenient operations.
  */
 interface FileSystemModel : DiscreteResource<Directory> {
+    // TODO: (Design change) Turn this into an extension method, since getValue() will give us the root directory and we need to call it anyways
     /**
      * The node at [path], or null if any component is missing, or an intermediate component is a file.
      */
@@ -70,6 +71,8 @@ fun FileSystemModel(name: String, initialRoot: Directory = now().let { Directory
         context (_: ResourceScope)
         override fun get(path: Path): FileNode? = state.getValue().lookup(path.segments())
 
+        // TODO: Inherit the name from f.toString(), so we can use more descriptive names
+        // TODO: I think we may need to re-think how to do changes such that errors fault the caller instead of the resource
         context (_: TaskScope)
         override suspend fun change(path: Path, f: (FileNode?) -> FileNode?) {
             val segments = path.segments()
@@ -91,6 +94,7 @@ private fun applyConcurrentFileSystemEffects(
 ): Result<FullDynamics<Discrete<Directory>>> {
     val result = safelyApplyConcurrentEffects(effects, initialValue)
     return result.exceptionOrNull()?.let {
+        // TODO: (Bug) - Don't write to System.err - we want to write to simulation stderr, which may not be possible here since we don't have a task scope
         System.err.println("File system fault from concurrent effects; reverting to last known good state. Cause: $it")
         initialValue
     } ?: result
