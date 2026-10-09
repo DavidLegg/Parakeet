@@ -29,12 +29,12 @@ typealias ResourceEffect<D> = Effect<Result<FullDynamics<D>>>
 typealias ApplyConcurrentResourceEffect<D> = (List<ResourceEffect<D>>, Result<FullDynamics<D>>) -> Result<FullDynamics<D>>
 
 class FaultedResourceException(
-    message: String,
-    cause: Throwable,
+    override val message: String,
+    override val cause: Throwable,
     val expiry: Duration = Duration.INFINITE,
 ) : RuntimeException(message, cause) {
     fun expiringAt(newExpiry: Duration) =
-        FaultedResourceException(checkNotNull(message), checkNotNull(cause), expiry or newExpiry)
+        FaultedResourceException(message, cause, expiry or newExpiry)
 }
 
 
