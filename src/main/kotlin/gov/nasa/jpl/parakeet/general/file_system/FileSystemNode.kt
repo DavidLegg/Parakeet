@@ -14,16 +14,16 @@ sealed interface FileSystemNode {
     data class Directory(
         override val name: String,
         override val createdTime: Instant,
-        override val modifiedTime: Instant,
-        val children: Map<String, FileSystemNode>,
-        override val sizeBytes: Int = children.values.sumOf { it.sizeBytes },
+        override val modifiedTime: Instant = createdTime,
+        val children: Map<String, FileSystemNode> = emptyMap(),
+    ) : FileSystemNode {
+        override val sizeBytes: Int = children.values.sumOf { it.sizeBytes }
         val numFiles: Int = children.values.sumOf {
             when (it) {
                 is Directory -> it.numFiles
                 is File, is Corrupted -> 1
             }
-        },
-    ) : FileSystemNode {
+        }
         override val digest: ByteArray = computeDigest {
             update(name.toByteArray(Charsets.UTF_8))
             update(createdTime)
