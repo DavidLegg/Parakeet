@@ -5,9 +5,10 @@ import gov.nasa.jpl.parakeet.foundation.resources.ResourceEffect
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.Discrete
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteDynamicsMonad
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResource
-import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations.discreteResource
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.MutableDiscreteResource
 import gov.nasa.jpl.parakeet.foundation.resources.resource
+import gov.nasa.jpl.parakeet.foundation.resources.safelyApplyConcurrentEffects
+import gov.nasa.jpl.parakeet.foundation.resources.testConcurrentEffects
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.foundation.tasks.ResourceScope
 import gov.nasa.jpl.parakeet.foundation.tasks.ResourceScope.Companion.now
@@ -18,6 +19,7 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.get
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.set
 import gov.nasa.jpl.parakeet.kernel.Effect
 import java.nio.file.Path
+import kotlin.io.path.name
 import kotlin.time.Instant
 
 interface FileSystemModel : DiscreteResource<Directory> {
@@ -26,11 +28,15 @@ interface FileSystemModel : DiscreteResource<Directory> {
 
     interface FileSystemEffect : ResourceEffect<Discrete<Directory>> {
         val path: Path
+        val localEffect: Effect<FileSystemNode?>
+        val time: Instant
     }
 }
 
 fun FileSystemEffect(path: Path, effect: Effect<FileSystemNode?>, time: Instant) = object : FileSystemEffect {
     override val path: Path = path.normalize()
+    override val localEffect: Effect<FileSystemNode?> = effect
+    override val time: Instant = time
 
     override fun invoke(p1: Result<FullDynamics<Discrete<Directory>>>): Result<FullDynamics<Discrete<Directory>>> {
         val initialRootDirectory = p1.getOrThrow().data.value
@@ -44,6 +50,8 @@ fun FileSystemModel(name: String) = object : FileSystemModel {
     private val base: MutableDiscreteResource<Directory> = context(scope) {
         resource(name, Discrete(Directory("", now()))) {
             effects, initialCellValue ->
+            var workingResult = initialCellValue.getOrThrow().data.value
+
             // How should this work? We need to merge all the effects...
             // Case 1: f and g act on mutually exclusive paths - apply both
             // Case 2: f and g act on the same path - safely apply both, resulting in a conflicted node if that faults
@@ -62,6 +70,9 @@ fun FileSystemModel(name: String) = object : FileSystemModel {
             // This root dir is a path in that class. Each class has a root dir incomparable to the rest.
             // Hence, it's conservative to try every permutation of effects in a class on that class' root dir,
             // but to act on each class independently.
+
+            // TODO: All of this is bunk. When merging sequential effects, we build a generic ResourceEffect, not a FSE.
+            //   So, the casts below fail in general.
 
             val pathClasses = mutableMapOf<Path, MutableList<FileSystemEffect>>()
             for (effect in effects) {
@@ -107,6 +118,36 @@ fun FileSystemModel(name: String) = object : FileSystemModel {
             // At this point, pathClasses contains mutually-incomparable effects.
             // Each group must be safely-merged by testing all permutations.
             // But, each group is independent, and we may sequentially process all groups.
+
+            for ((path, pathClass) in pathClasses) {
+                val classTime = pathClass.first().time
+                if (pathClass.size == 1) {
+                    // Special case - no commutativity to check!
+                    val effect = pathClass.single()
+                    workingResult = workingResult.set(path, effect.localEffect(workingResult[path]), classTime)
+                } else {
+                    // General case - there are multiple permutations to try!
+                    // Extract the root that this group acts on
+                    val localInitialValue = workingResult[path]
+                    // TODO: There's a bug here, we need to reframe the effects below as local effects on the group root node.
+                    val localResult: FileSystemNode? = try {
+                        testConcurrentEffects(
+                            pathClass.map { it.localEffect },
+                            localInitialValue
+                        )
+                    } catch (e: Throwable) {
+                        // Something failed, probably a concurrency problem!
+                        if (localInitialValue != null) {
+                            // If we had an original file, we corrupted it
+                            Corrupted(localInitialValue, exception = e)
+                        } else {
+                            // Otherwise, we created a corrupted file brand-new
+                            Corrupted(path.name, classTime, exception = e)
+                        }
+                    }
+                    workingResult.set(path, localResult, classTime)
+                }
+            }
 
             TODO()
         }

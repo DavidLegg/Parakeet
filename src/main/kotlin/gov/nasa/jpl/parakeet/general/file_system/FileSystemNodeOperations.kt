@@ -1,7 +1,6 @@
 package gov.nasa.jpl.parakeet.general.file_system
 
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNode.*
-import java.io.FileNotFoundException
 import java.nio.file.Path
 import kotlin.io.path.name
 import kotlin.time.Instant

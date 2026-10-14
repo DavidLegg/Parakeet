@@ -63,15 +63,44 @@ sealed interface FileSystemNode {
         override val name: String,
         override val createdTime: Instant,
         override val modifiedTime: Instant,
-        val original: FileSystemNode,
-        override val sizeBytes: Int = original.sizeBytes,
+        override val sizeBytes: Int,
+        val original: FileSystemNode?,
+        val exception: Throwable,
     ) : FileSystemNode {
+        constructor(
+            original: FileSystemNode,
+            exception: Throwable,
+        ) : this(
+            original.name,
+            original.createdTime,
+            original.modifiedTime,
+            original.sizeBytes,
+            original,
+            exception,
+        )
+
+        constructor(
+            name: String,
+            createdTime: Instant,
+            modifiedTime: Instant = createdTime,
+            sizeBytes: Int = 0,
+            exception: Throwable,
+        ) : this(
+            name,
+            createdTime,
+            modifiedTime,
+            sizeBytes,
+            null,
+            exception,
+        )
+
+        // Don't include the exception in the digest. It's not valuable for comparison.
         override val digest: ByteArray = computeDigest {
             update(name)
             update(createdTime)
             update(modifiedTime)
             update(sizeBytes)
-            update(original.digest)
+            original?.let { update(it.digest) }
         }
 
         override fun equals(other: Any?): Boolean =
