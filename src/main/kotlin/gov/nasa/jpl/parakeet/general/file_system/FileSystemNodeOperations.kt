@@ -1,6 +1,7 @@
 package gov.nasa.jpl.parakeet.general.file_system
 
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNode.*
+import java.io.FileNotFoundException
 import java.nio.file.Path
 import kotlin.io.path.name
 import kotlin.time.Instant
@@ -72,7 +73,10 @@ object FileSystemNodeOperations {
             val pathToFinalDir = normalPath.parent
             if (pathToFinalDir != null) {
                 for (component in pathToFinalDir) {
-                    val nextDir = finalDir[component] ?: Directory(component.name, time)
+                    val nextDir = finalDir[component]
+                    requireNotNull(nextDir) {
+                        "Intermediate directory ${component.name} not found for $normalPath"
+                    }
                     require(nextDir is Directory) {
                         "Cannot descend into non-directory node ${component.name} in $normalPath"
                     }
