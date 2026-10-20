@@ -49,8 +49,22 @@ context (scope: InitScope)
 fun FileSystemModel(name: String) = object : FileSystemModel {
     private val base: MutableDiscreteResource<Directory> = context(scope) {
         resource(name, Discrete(Directory("", now()))) {
-            effects, initialCellValue ->
+            effectBatch, initialCellValue ->
             var workingResult = initialCellValue.getOrThrow().data.value
+
+            // TODO: We need to rework everything below.
+            //   This was figured out on the mistaken belief that we permute effects.
+            //   We don't. We permute branches.
+            //   The key distinction is that a branch affects many files (in general), not a single file.
+            //   This complicates the grouping logic below.
+            //   We could extend the grouping logic to say that each branch affects the LCA, but this is likely to be too broad, I think.
+            //   Stated vaguely, I think we need to group all the paths we'll affect into classes, each represented by the root path.
+            //   A path is in that class if it's within that root path, and the classes are as atomic as they can be while having incomparable roots.
+            //   Then, we need to do a similar grouping across branches, such that each branch-class acts on incomparable path-classes.
+            //   Finally, for each branch-class, test all permutations of branches.
+            //   To test a branch permutation, check every root path affected by that branch-class.
+            //   Any root path which is ambiguous is corrupted, but other root paths (even in a failed branch permutation)
+            //   can be resolved to a legitimate value.
 
             // How should this work? We need to merge all the effects...
             // Case 1: f and g act on mutually exclusive paths - apply both
@@ -71,11 +85,8 @@ fun FileSystemModel(name: String) = object : FileSystemModel {
             // Hence, it's conservative to try every permutation of effects in a class on that class' root dir,
             // but to act on each class independently.
 
-            // TODO: All of this is bunk. When merging sequential effects, we build a generic ResourceEffect, not a FSE.
-            //   So, the casts below fail in general.
-
             val pathClasses = mutableMapOf<Path, MutableList<FileSystemEffect>>()
-            for (effect in effects) {
+            for (branch in effectBatch) {
                 effect as FileSystemEffect
                 var foundExistingClass = false
                 var enlargedClass: MutableList<FileSystemEffect>? = null
@@ -154,7 +165,7 @@ fun FileSystemModel(name: String) = object : FileSystemModel {
     }
 
     context (_: TaskScope)
-    override fun change(path: Path, effect: ResourceEffect<FileSystemNode>) = base.emit()
+    override fun change(path: Path, effect: FileSystemEffect) = TODO()
 
     context(scope: ResourceScope)
     override fun getDynamics(): FullDynamics<Discrete<Directory>> = base.getDynamics()

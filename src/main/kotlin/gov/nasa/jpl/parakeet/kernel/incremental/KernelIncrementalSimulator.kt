@@ -4,6 +4,8 @@ import gov.nasa.jpl.parakeet.kernel.incremental.IncSimNode.*
 import gov.nasa.jpl.parakeet.kernel.BasicInitScope
 import gov.nasa.jpl.parakeet.kernel.Cell
 import gov.nasa.jpl.parakeet.kernel.Effect
+import gov.nasa.jpl.parakeet.kernel.EffectBatch
+import gov.nasa.jpl.parakeet.kernel.EffectBranch
 import gov.nasa.jpl.parakeet.kernel.KernelCheckpoint
 import gov.nasa.jpl.parakeet.kernel.KernelTaskCheckpoint
 import gov.nasa.jpl.parakeet.kernel.MutableDependentMap
@@ -138,10 +140,10 @@ class KernelIncrementalSimulator(
                 value: T,
                 valueType: KType,
                 stepBy: (T, Duration) -> T,
-                applyConcurrentEffects: (List<Effect<T>>, T) -> T,
+                commit: (EffectBatch<T>, T) -> T,
             ): Cell<T> =
                 // Create an incremental cell, and add its initial value to the graph
-                IncrementalCellImpl(name, valueType, stepBy, applyConcurrentEffects).also {
+                IncrementalCellImpl(name, valueType, stepBy, commit).also {
                     cellNodes[it] = TreeMap<SimulationTime, CellNode<*>>().apply {
                         put(cellAllocTime, CellWriteNode(
                             nextNodeId++,
@@ -371,7 +373,7 @@ class KernelIncrementalSimulator(
                     // Further, such a node must exist because initial writes cannot participate in a merge.
                     .first { it.time < batchStartTime }
                 // Roll up the net effect of each branch, and apply them all together to compute the value this node should have
-                node.cell.applyConcurrentEffects(node.prior.map { it.branchNetEffect(batchStart) }, batchStart.value)
+                node.cell.commit(node.prior.map { it.effectBranch(batchStart) }, batchStart.value)
             }
             is CellStepNode<T> -> {
                 // Stepping many small increments can accrue numerical error in complex dynamics.
@@ -586,20 +588,13 @@ class KernelIncrementalSimulator(
         }
     }
 
-    private fun <T> CellWriteNode<T>.branchNetEffect(batchStart: CellNode<T>): Effect<T> {
+    private fun <T> CellWriteNode<T>.effectBranch(batchStart: CellNode<T>): EffectBranch<T> {
         // The branch comprises all our prior write nodes until batchStart
-        val effects = generateSequence(this) { it.prior?.takeUnless { it === batchStart } as CellWriteNode<T>? }
-            .map { it.effect }
-            .toList()
+        return generateSequence<CellWriteNode<T>>(this) { it.prior?.takeUnless<CellNode<T>> { it === batchStart } as CellWriteNode<T>? }
+            .map<CellWriteNode<T>, Effect<T>> { it.effect }
+            .toList<Effect<T>>()
             // Branch nodes are initially collected in reverse order, so use a reverse view to apply them
-            .asReversed()
-        return {
-            var result = it
-            for (effect in effects) {
-                result = effect(result)
-            }
-            result
-        }
+            .asReversed<Effect<T>>()
     }
 
     /**
@@ -1211,7 +1206,7 @@ class KernelIncrementalSimulator(
         override val name: Name,
         override val valueType: KType,
         override val stepBy: (T, Duration) -> T,
-        override val applyConcurrentEffects: (List<Effect<T>>, T) -> T,
+        override val commit: (EffectBatch<T>, T) -> T,
     ) : Cell<T>
     @Suppress("UNCHECKED_CAST")
     private fun <T> getCellNodes(cell: Cell<T>) = cellNodes.getValue(cell) as TreeMap<SimulationTime, CellNode<T>>

@@ -17,6 +17,7 @@ import gov.nasa.jpl.parakeet.foundation.tasks.SimulationScope.Companion.subSimul
 import gov.nasa.jpl.parakeet.kernel.BasicInitScope
 import gov.nasa.jpl.parakeet.kernel.Cell
 import gov.nasa.jpl.parakeet.kernel.Condition
+import gov.nasa.jpl.parakeet.kernel.EffectBatch
 import gov.nasa.jpl.parakeet.kernel.Name
 import gov.nasa.jpl.parakeet.kernel.NameOperations.div
 import gov.nasa.jpl.parakeet.utilities.Reflection.withArg
@@ -123,7 +124,7 @@ interface InitScope : SimulationScope, ResourceScope, ReportScope {
         value: T,
         valueType: KType,
         stepBy: (T, Duration) -> T,
-        applyConcurrentEffects: (List<Effect<T>>, T) -> T,
+        commit: (EffectBatch<T>, T) -> T,
     ): Cell<T>
 
     /**
@@ -134,14 +135,14 @@ interface InitScope : SimulationScope, ResourceScope, ReportScope {
     fun <T> channel(name: Name, metadata: Map<String, ChannelReport.Metadatum>, valueType: KType): Channel<T>
 
     companion object {
-        context (scope: InitScope)
+        context(scope: InitScope)
         fun <T: Any> allocate(
             name: Name,
             value: T,
             valueType: KType,
             stepBy: (T, Duration) -> T,
-            applyConcurrentEffects: (List<Effect<T>>, T) -> T,
-        ): Cell<T> = scope.allocate(name, value, valueType, stepBy, applyConcurrentEffects)
+            commit: (EffectBatch<T>, T) -> T,
+        ): Cell<T> = scope.allocate(name, value, valueType, stepBy, commit)
 
         context (scope: InitScope)
         fun spawn(name: Name, block: suspend context (TaskScope) () -> TaskScopeResult) = scope.spawn(name, block)
@@ -162,8 +163,8 @@ interface InitScope : SimulationScope, ResourceScope, ReportScope {
                 value: T,
                 valueType: KType,
                 stepBy: (T, Duration) -> T,
-                applyConcurrentEffects: (List<Effect<T>>, T) -> T,
-            ): Cell<T> = scope.allocate(Name(contextName) / name, value, valueType, stepBy, applyConcurrentEffects)
+                commit: (EffectBatch<T>, T) -> T,
+            ): Cell<T> = scope.allocate(Name(contextName) / name, value, valueType, stepBy, commit)
 
             override fun spawn(name: Name, block: suspend context (TaskScope) () -> TaskScopeResult) =
                 scope.spawn(Name(contextName) / name, block)
@@ -197,8 +198,8 @@ fun InitScope(startTime: Instant): InitScope = object : InitScope {
         value: T,
         valueType: KType,
         stepBy: (T, Duration) -> T,
-        applyConcurrentEffects: (List<Effect<T>>, T) -> T,
-    ): Cell<T> = basicInitScope.allocate(name, value, valueType, stepBy, applyConcurrentEffects)
+        commit: (EffectBatch<T>, T) -> T,
+    ): Cell<T> = basicInitScope.allocate(name, value, valueType, stepBy, commit)
 
     override fun spawn(name: Name, block: suspend context(TaskScope) () -> TaskScopeResult) =
         // When spawning a task, build a simulation scope which incorporates the task's Name

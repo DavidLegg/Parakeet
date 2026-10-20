@@ -26,7 +26,8 @@ interface MutableResource<D> : Resource<D> {
     fun emit(effect: ResourceEffect<D>)
 }
 typealias ResourceEffect<D> = Effect<Result<FullDynamics<D>>>
-typealias ApplyConcurrentResourceEffect<D> = (List<ResourceEffect<D>>, Result<FullDynamics<D>>) -> Result<FullDynamics<D>>
+typealias ResourceEffectBatch<D> = EffectBatch<Result<FullDynamics<D>>>
+typealias CommitResourceEffects<D> = (ResourceEffectBatch<D>, Result<FullDynamics<D>>) -> Result<FullDynamics<D>>
 
 class FaultedResourceException(
     message: String,
@@ -70,7 +71,7 @@ context (scope: InitScope)
 inline fun <V, reified D : Dynamics<V, D>> resource(
     name: String,
     initialDynamics: D,
-    noinline applyConcurrentEffects: ApplyConcurrentResourceEffect<D> = ::safelyApplyConcurrentEffects,
+    noinline applyConcurrentEffects: CommitResourceEffects<D> = ::safelyApplyConcurrentEffects,
 ) = resource(name, initialDynamics, typeOf<D>(), applyConcurrentEffects)
 
 context (scope: InitScope)
@@ -78,7 +79,7 @@ fun <V, D : Dynamics<V, D>> resource(
     name: String,
     initialDynamics: D,
     dynamicsType: KType,
-    applyConcurrentEffects: ApplyConcurrentResourceEffect<D> = ::safelyApplyConcurrentEffects,
+    applyConcurrentEffects: CommitResourceEffects<D> = ::safelyApplyConcurrentEffects,
 ) = resource(name, DynamicsMonad.pure(initialDynamics), FullDynamics::class.withArg(dynamicsType), applyConcurrentEffects)
 
 context (scope: InitScope)
@@ -86,14 +87,14 @@ fun <V, D : Dynamics<V, D>> resource(
     name: String,
     initialDynamics: FullDynamics<D>,
     fullDynamicsType: KType,
-    applyConcurrentEffects: ApplyConcurrentResourceEffect<D> = ::safelyApplyConcurrentEffects,
+    commit: CommitResourceEffects<D> = ::safelyApplyConcurrentEffects,
 ): MutableResource<D> {
     val cell = allocate(
         Name(name),
         Result.success(initialDynamics),
         Result::class.withArg(fullDynamicsType),
         { d, t -> d.mapCatching { it.step(t) } },
-        applyConcurrentEffects,
+        commit,
     )
 
     return object : MutableResource<D> {
@@ -112,7 +113,7 @@ fun <V, D : Dynamics<V, D>> resource(
 
 /**
  * Apply concurrent effects by assuming they commute and applying them in an arbitrary order.
- * This function conforms to the [ApplyConcurrentResourceEffect] signature.
+ * This function conforms to the [CommitResourceEffects] signature.
  */
 fun <D> applyCommutingEffects(effects: List<ResourceEffect<D>>, value: Result<FullDynamics<D>>): Result<FullDynamics<D>> {
     var result = value
@@ -124,7 +125,7 @@ fun <D> applyCommutingEffects(effects: List<ResourceEffect<D>>, value: Result<Fu
 
 /**
  * Apply concurrent effects trivially by assuming they don't commute and throwing an [IllegalArgumentException] instead.
- * This function conforms to the [ApplyConcurrentResourceEffect] signature.
+ * This function conforms to the [CommitResourceEffects] signature.
  */
 fun <D> applyNoncommutingEffects(effects: List<ResourceEffect<D>>, value: Result<FullDynamics<D>>): Result<FullDynamics<D>> {
     throw IllegalArgumentException("Non-commuting concurrent effects: $effects - Cell does not support concurrent effects.")
