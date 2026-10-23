@@ -7,7 +7,6 @@ import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteDynamicsMonad
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResource
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.MutableDiscreteResource
 import gov.nasa.jpl.parakeet.foundation.resources.resource
-import gov.nasa.jpl.parakeet.foundation.resources.safelyApplyConcurrentEffects
 import gov.nasa.jpl.parakeet.foundation.resources.testConcurrentEffects
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
 import gov.nasa.jpl.parakeet.foundation.tasks.ResourceScope
@@ -18,19 +17,24 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemNode.*
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.get
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.set
 import gov.nasa.jpl.parakeet.kernel.Effect
-import gov.nasa.jpl.parakeet.kernel.EffectBranch
+import gov.nasa.jpl.parakeet.kernel.EffectBatch
 import java.nio.file.Path
-import kotlin.io.path.name
 import kotlin.time.Instant
 
 interface FileSystemModel : DiscreteResource<Directory> {
     context (_: TaskScope)
-    fun change(path: Path, effect: FileSystemEffect)
+    fun change(path: Path, effect: Effect<FileSystemNode?>)
 
     interface FileSystemEffect : ResourceEffect<Discrete<Directory>> {
         val path: Path
         val localEffect: Effect<FileSystemNode?>
         val time: Instant
+
+        operator fun invoke(rootDir: Directory): Directory =
+            rootDir.set(path, localEffect(rootDir[path]), time)
+
+        override fun invoke(p1: Result<FullDynamics<Discrete<Directory>>>): Result<FullDynamics<Discrete<Directory>>> =
+            Result.success(DiscreteDynamicsMonad.pure(this(p1.getOrThrow().data.value)))
     }
 }
 
@@ -38,12 +42,6 @@ fun FileSystemEffect(path: Path, effect: Effect<FileSystemNode?>, time: Instant)
     override val path: Path = path.normalize()
     override val localEffect: Effect<FileSystemNode?> = effect
     override val time: Instant = time
-
-    override fun invoke(p1: Result<FullDynamics<Discrete<Directory>>>): Result<FullDynamics<Discrete<Directory>>> {
-        val initialRootDirectory = p1.getOrThrow().data.value
-        val resultAtPath = effect(initialRootDirectory[path])
-        return Result.success(DiscreteDynamicsMonad.pure(initialRootDirectory.set(path, resultAtPath, time)))
-    }
 }
 
 context (scope: InitScope)
@@ -51,8 +49,6 @@ fun FileSystemModel(name: String) = object : FileSystemModel {
     private val base: MutableDiscreteResource<Directory> = context(scope) {
         resource(name, Discrete(Directory("", now()))) {
             effectBatch, initialCellValue ->
-            var workingResult = initialCellValue.getOrThrow().data.value
-
             @Suppress("UNCHECKED_CAST")
             effectBatch as List<List<FileSystemEffect>>
 
@@ -61,14 +57,22 @@ fun FileSystemModel(name: String) = object : FileSystemModel {
             //   We don't. We permute branches.
             //   The key distinction is that a branch affects many files (in general), not a single file.
             //   This complicates the grouping logic below.
-            //   We could extend the grouping logic to say that each branch affects the LCA, but this is likely to be too broad, I think.
-            //   Stated vaguely, I think we need to group all the paths we'll affect into classes, each represented by the root path.
-            //   A path is in that class if it's within that root path, and the classes are as atomic as they can be while having incomparable roots.
-            //   Then, we need to do a similar grouping across branches, such that each branch-class acts on incomparable path-classes.
-            //   Finally, for each branch-class, test all permutations of branches.
-            //   To test a branch permutation, check every root path affected by that branch-class.
-            //   Any root path which is ambiguous is corrupted, but other root paths (even in a failed branch permutation)
-            //   can be resolved to a legitimate value.
+            //
+            // We could extend the grouping logic to say that each branch affects the LCA, but this is likely to be too broad, I think.
+            // Stated vaguely, I think we need to group all the paths we'll affect into classes, each represented by the root path.
+            // A path is in that class if it's within that root path, and the classes are as atomic as they can be while having incomparable roots.
+            // Then, we need to do a similar grouping across branches, such that each branch-class acts on incomparable path-classes.
+            // Finally, for each branch-class, test all permutations of branches.
+            // To test a branch permutation, check every root path affected by that branch-class.
+            // Any root path which is ambiguous is corrupted, but other root paths (even in a failed branch permutation)
+            // can be resolved to a legitimate value.
+            //
+            // Actually, I think we can do even better than that...
+            // Consider breaking each branch into branchlets, where each branchlet doesn't interact with other branchlets...
+            // So, each branchlet affects a single root path.
+            // Then, we can group branchlets by common root paths...
+            // And then we can just permute branchlets within a branchlet-group, checking the root path.
+            // This is even more granular than the algorithm above, and should be easier to compute.
 
             // TODO: see if allPaths can be eliminated in favor of double-for-loop, to avoid intermediate copying
             fun List<FileSystemEffect>.affectedPaths() = map { it.path }
@@ -146,6 +150,14 @@ fun FileSystemModel(name: String) = object : FileSystemModel {
             // At this point, we have congruence classes of branches, and the set of root paths they affect.
             // From there, we should be able to permute each branch class independently and perform targeted
             // corruption detection and resolution on the root paths for that branch class.
+
+            var workingResult = initialCellValue.getOrThrow().data.value
+            for (branchClass in branchClasses) {
+                // TODO: See if there's a way to do this cast without copying all the effects again...
+                val batch: EffectBatch<Directory> = branchClass.branches.map { it.map { it::invoke } }
+                val tempResult = testConcurrentEffects(branchClass.branches, workingResult)
+                // branchClass.branches.map { it.map{ it.localEffect }}
+            }
 
             TODO()
         }
