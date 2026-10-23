@@ -18,6 +18,7 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemNode.*
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.get
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.set
 import gov.nasa.jpl.parakeet.kernel.Effect
+import gov.nasa.jpl.parakeet.kernel.EffectBranch
 import java.nio.file.Path
 import kotlin.io.path.name
 import kotlin.time.Instant
@@ -52,6 +53,9 @@ fun FileSystemModel(name: String) = object : FileSystemModel {
             effectBatch, initialCellValue ->
             var workingResult = initialCellValue.getOrThrow().data.value
 
+            @Suppress("UNCHECKED_CAST")
+            effectBatch as List<List<FileSystemEffect>>
+
             // TODO: We need to rework everything below.
             //   This was figured out on the mistaken belief that we permute effects.
             //   We don't. We permute branches.
@@ -66,99 +70,82 @@ fun FileSystemModel(name: String) = object : FileSystemModel {
             //   Any root path which is ambiguous is corrupted, but other root paths (even in a failed branch permutation)
             //   can be resolved to a legitimate value.
 
-            // How should this work? We need to merge all the effects...
-            // Case 1: f and g act on mutually exclusive paths - apply both
-            // Case 2: f and g act on the same path - safely apply both, resulting in a conflicted node if that faults
-            // Case 3: f acts on a prefix of g's path - safely apply both, resulting in a conflicted node at f's path if that faults
-            // However, this two-case logic needs to extend to all concurrent effects simultaneously...
-
-            // After a little bit of thought, we can reduce the first part of this problem (deciding which permutations to check)
-            // down to "check permutations modulo incomparable paths", using the prefix partial ordering on paths.
-            // For example, if paths are /foo, /foo/bar, and /foo/baz, then only the following orders matter:
-            // 123, 213, 312, 231 - 132 is (23)123, 321 is (23)231.
-            // Since paths 2 and 3 are incomparable, their relative order in the permutation is irrelevant.
-
-            // Computing this exactly is hard, but there's a slightly less precise simplification we can make.
-            // Partition the paths by the closure of comparability. In the example above, all three paths go into the same class.
-            // Then, each class will have a root directory, all of them local-relative to that dir.
-            // This root dir is a path in that class. Each class has a root dir incomparable to the rest.
-            // Hence, it's conservative to try every permutation of effects in a class on that class' root dir,
-            // but to act on each class independently.
-
-            val pathClasses = mutableMapOf<Path, MutableList<FileSystemEffect>>()
-            for (branch in effectBatch) {
-                effect as FileSystemEffect
-                var foundExistingClass = false
-                var enlargedClass: MutableList<FileSystemEffect>? = null
+            // TODO: see if allPaths can be eliminated in favor of double-for-loop, to avoid intermediate copying
+            fun List<FileSystemEffect>.affectedPaths() = map { it.path }
+            val allPaths: List<Path> = effectBatch.flatMap { it.affectedPaths() }
+            // TODO: pathClasses should actually be a union-find data structure, so we can efficiently query path-congruence
+            val pathClasses: MutableMap<Path, MutableList<Path>> = mutableMapOf()
+            for (path in allPaths) {
+                // Start by assuming we'll need to build a new path class.
+                var newPathClass: MutableList<Path>? = mutableListOf(path)
                 val iter = pathClasses.iterator()
                 while (iter.hasNext()) {
-                    val (path, pathClass) = iter.next()
-                    if (enlargedClass == null) {
-                        if (effect.path.startsWith(path)) {
-                            // Effect belongs to this class
-                            pathClass += effect
-                            foundExistingClass = true
-                            // Since path is incomparable to all other class rep's, this class doesn't merge with another
-                            break
-                        } else if (path.startsWith(effect.path)) {
-                            // Effect belongs to this class
-                            pathClass += effect
-                            // But we've also moved the root path up to effect.path.
-                            // Remove that pathClass we found, in preparation to add it back under effect.path
-                            iter.remove()
-                            // We've already checked the classes before this one, and they were incomparable to effect.path
-                            // Continue in a special mode, where we'll do a one-sided check to add to our newly-enlarged class.
-                            enlargedClass = pathClass
-                        }
-                    } else {
-                        if (path.startsWith(effect.path)) {
-                            // We need to merge this class with the class of effect.path
-                            // Merge its elements into those for the new class:
-                            // TODO: Make this a union-find data structure instead of map of lists, to avoid this copy?
-                            enlargedClass += pathClass
-                            // Then remove this class from the map
-                            iter.remove()
-                        }
+                    val (rootPath, pathClass) = iter.next()
+                    if (path.startsWith(rootPath)) {
+                        // path belongs to pathClass, not a new path class
+                        pathClass.add(path)
+                        newPathClass = null
+                        // Since all other path classes are incomparable to rootPath, they are incomparable to path, so we're done.
+                        break
+                    } else if (rootPath.startsWith(path)) {
+                        // path extends pathClass, so remove pathClass to replace it with path
+                        iter.remove()
+                        newPathClass!!.addAll(pathClass)
                     }
                 }
-                if (!foundExistingClass) {
-                    pathClasses[effect.path] = enlargedClass ?: mutableListOf(effect)
+                // If we still want to build a new path class, do so.
+                newPathClass?.let { pathClasses[path] = it }
+            }
+            // At this point, pathClasses' keys are incomparable root paths, such that all paths belong to exactly one class.
+            // First, let's invert pathClass to get a map from each path to its root path:
+            val pathToRootPath = mutableMapOf<Path, Path>()
+            for ((rootPath, pathClass) in pathClasses) {
+                pathClass.associateWithTo(pathToRootPath) { rootPath }
+            }
+            // Finally, we need to build congruence classes of branches based on intersecting root path sets
+
+            /** Associate a set of branches and the set of root paths those branches affect. */
+            class BranchClass(branch: List<FileSystemEffect>) {
+                val branches: MutableList<List<FileSystemEffect>> = mutableListOf(branch)
+                // Start out by associating each branch to the set of root paths it touches
+                val rootPaths: MutableSet<Path> = branch.affectedPaths().mapTo(mutableSetOf(), pathToRootPath::getValue)
+
+                /** Merge [other] into this */
+                operator fun plusAssign(other: BranchClass) {
+                    branches += other.branches
+                    rootPaths += other.rootPaths
                 }
+
+                /** Test if this and [other] overlap in what root paths they affect */
+                infix fun interactsWith(other: BranchClass): Boolean =
+                    other.rootPaths.any { it in rootPaths }
             }
 
-            // At this point, pathClasses contains mutually-incomparable effects.
-            // Each group must be safely-merged by testing all permutations.
-            // But, each group is independent, and we may sequentially process all groups.
-
-            for ((path, pathClass) in pathClasses) {
-                val classTime = pathClass.first().time
-                if (pathClass.size == 1) {
-                    // Special case - no commutativity to check!
-                    val effect = pathClass.single()
-                    workingResult = workingResult.set(path, effect.localEffect(workingResult[path]), classTime)
-                } else {
-                    // General case - there are multiple permutations to try!
-                    // Extract the root that this group acts on
-                    val localInitialValue = workingResult[path]
-                    // TODO: There's a bug here, we need to reframe the effects below as local effects on the group root node.
-                    val localResult: FileSystemNode? = try {
-                        testConcurrentEffects(
-                            pathClass.map { it.localEffect },
-                            localInitialValue
-                        )
-                    } catch (e: Throwable) {
-                        // Something failed, probably a concurrency problem!
-                        if (localInitialValue != null) {
-                            // If we had an original file, we corrupted it
-                            Corrupted(localInitialValue, exception = e)
-                        } else {
-                            // Otherwise, we created a corrupted file brand-new
-                            Corrupted(path.name, classTime, exception = e)
-                        }
+            val branchClasses = mutableListOf<BranchClass>()
+            for (branch in effectBatch) {
+                val branchClass = BranchClass(branch)
+                val mergeClasses = mutableListOf<BranchClass>()
+                val iter = branchClasses.iterator()
+                while (iter.hasNext()) {
+                    val existingBranchClass = iter.next()
+                    if (branchClass interactsWith existingBranchClass) {
+                        // Delete that existing branch class
+                        iter.remove()
+                        // Track that we'll need to merge this class in later
+                        mergeClasses += existingBranchClass
+                        // Note that we don't merge immediately, as that'll make it more expensive to check interactions later.
+                        // We know that existingBranchClass doesn't interact with later branch classes, so we don't need that check for correctness.
                     }
-                    workingResult.set(path, localResult, classTime)
                 }
+                // Merge everything into branchClass
+                mergeClasses.forEach { branchClass += it }
+                // And finally add branchClass as its own congruence class
+                branchClasses += branchClass
             }
+
+            // At this point, we have congruence classes of branches, and the set of root paths they affect.
+            // From there, we should be able to permute each branch class independently and perform targeted
+            // corruption detection and resolution on the root paths for that branch class.
 
             TODO()
         }
