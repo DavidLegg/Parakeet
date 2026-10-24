@@ -52,10 +52,13 @@ fun <D> testConcurrentEffects(effectsBatch: EffectBatch<D>, initialValue: D): D 
         // We'll juggle the pointers in this array to work through all permutations of effects efficiently.
         val branchArray = effectsBatch.toTypedArray()
 
+        // Although runEffects is logically two fold operations, writing it directly avoids some intermediate copying
         fun runEffects(): D {
             var result = initialValue
             for (branch in branchArray) {
-                result = branch.applyBranch(result)
+                for (effect in branch) {
+                    result = effect(result)
+                }
             }
             return result
         }
@@ -104,8 +107,4 @@ fun <D> testConcurrentEffects(effectsBatch: EffectBatch<D>, initialValue: D): D 
     }
 }
 
-fun <D> EffectBranch<D>.applyBranch(value: D): D {
-    var result = value
-    for (effect in this) result = effect(result)
-    return result
-}
+fun <D> EffectBranch<D>.applyBranch(value: D): D = fold(value) { v, f -> f(v) }

@@ -22,6 +22,16 @@ object FileSystemNodeOperations {
         return result
     }
 
+    /**
+     * Check if [this] contains a child named [name].
+     */
+    operator fun Directory.contains(name: String): Boolean = name in children
+
+    /**
+     * Check if local-relative [path] inside [this] exists.
+     */
+    operator fun Directory.contains(path: Path): Boolean = this[path] != null
+
     /*
      * "Mutation" functions
      *
