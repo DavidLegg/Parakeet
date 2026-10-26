@@ -7,6 +7,7 @@ import gov.nasa.jpl.parakeet.foundation.tasks.TaskScope
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.RmMode.*
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNode.*
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.get
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.glob
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.isEmpty
 import gov.nasa.jpl.parakeet.kernel.Effect
 import gov.nasa.jpl.parakeet.utilities.named
@@ -22,6 +23,14 @@ object FileSystemModelOperations {
     /** Access [path] in the current value of this model. */
     context (_: ResourceScope)
     operator fun FileSystemModel.get(path: Path): FileSystemNode? = getValue()[path]
+
+    /**
+     * Return all file nodes matching the glob [pattern].
+     *
+     * @see [Directory.glob]
+     */
+    context (_: ResourceScope)
+    fun FileSystemModel.glob(pattern: String): Map<Path, FileSystemNode> = getValue().glob(pattern)
 
     // TODO: Other common file operations, like ls and globbing?
     // Should these be written as FSN operations, and then just lifted to model operations, maybe?
