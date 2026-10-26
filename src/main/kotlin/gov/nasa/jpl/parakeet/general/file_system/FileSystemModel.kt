@@ -37,6 +37,8 @@ interface FileSystemModel : DiscreteResource<Directory> {
             val rootDir = p1.getOrThrow().data.value
             return Result.success(DiscreteDynamicsMonad.pure(rootDir.set(path, localEffect(rootDir[path]), time)))
         }
+
+        override fun toString(): String = "$localEffect at $path"
     }
 }
 

@@ -42,7 +42,7 @@ sealed interface FileSystemNode {
     data class File(
         override val name: String,
         override val createdTime: Instant,
-        override val modifiedTime: Instant,
+        override val modifiedTime: Instant = createdTime,
         val content: ByteArray? = null,
         override val sizeBytes: Int = content?.size ?: 0,
     ) : FileSystemNode {

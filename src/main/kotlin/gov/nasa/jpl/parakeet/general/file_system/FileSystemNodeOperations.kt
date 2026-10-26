@@ -32,6 +32,20 @@ object FileSystemNodeOperations {
      */
     operator fun Directory.contains(path: Path): Boolean = this[path] != null
 
+    /**
+     * True if this directory contains no child nodes.
+     *
+     * Note that an empty directory may not have size 0 bytes.
+     */
+    fun Directory.isEmpty(): Boolean = children.isEmpty()
+
+    /**
+     * True if this directory contains any child nodes.
+     *
+     * Note that an empty directory may not have size 0 bytes.
+     */
+    fun Directory.isNotEmpty(): Boolean = children.isNotEmpty()
+
     /*
      * "Mutation" functions
      *
