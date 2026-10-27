@@ -115,10 +115,12 @@ fun <V, D : Dynamics<V, D>> resource(
  * Apply concurrent effects by assuming they commute and applying them in an arbitrary order.
  * This function conforms to the [CommitResourceEffects] signature.
  */
-fun <D> applyCommutingEffects(effects: List<ResourceEffect<D>>, value: Result<FullDynamics<D>>): Result<FullDynamics<D>> {
+fun <D> applyCommutingEffects(batch: ResourceEffectBatch<D>, value: Result<FullDynamics<D>>): Result<FullDynamics<D>> {
     var result = value
-    for (effect in effects) {
-        result = effect(result)
+    for (branch in batch) {
+        for (effect in branch) {
+            result = effect(result)
+        }
     }
     return result
 }
