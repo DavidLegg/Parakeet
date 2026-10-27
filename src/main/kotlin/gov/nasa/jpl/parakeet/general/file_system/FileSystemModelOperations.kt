@@ -194,4 +194,18 @@ object FileSystemModelOperations {
             null -> File(path.name, now)
         } }.named { "touch" })
     }
+
+    context (_: TaskScope)
+    fun FileSystemModel.write(path: Path, content: ByteArray? = null, sizeBytes: Int = content?.size ?: 0) {
+        val now = now()
+        change(path, { target: FileSystemNode? ->
+            // Either modify the file if it exists, or create a new file
+            (target as File?)?.copy(modifiedTime = now, content = content, sizeBytes = sizeBytes)
+                ?: File(path.name, now, content = content, sizeBytes = sizeBytes)
+        }, checkPreconditions = {
+            require(it is File?) {
+                "Cannot write to $path - it exists and is not a file"
+            }
+        })
+    }
 }

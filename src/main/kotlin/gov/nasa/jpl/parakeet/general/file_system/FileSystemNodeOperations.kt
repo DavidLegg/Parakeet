@@ -152,8 +152,7 @@ object FileSystemNodeOperations {
      */
     fun Directory.set(name: String, value: FileSystemNode?, time: Instant): Directory = this.copy(
         children = children.toMutableMap().apply {
-            if (value == null) remove(name)
-            else set(name, value)
+            compute(name) { _, _ -> value }
         },
         // Update modifiedTime if we are creating or deleting a node
         // TODO: Consider refining this to also update the modified time if we change the type of the child?
