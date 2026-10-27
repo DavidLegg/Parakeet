@@ -9,8 +9,11 @@ import kotlin.time.Instant
 object FileSystemNodeOperations {
     /**
      * Get the child of this directory named by [name], or null if no such child exists.
+     *
+     * As a special case, if [name] is empty, return [this] instead.
      */
-    operator fun Directory.get(name: String): FileSystemNode? = children[name]
+    operator fun Directory.get(name: String): FileSystemNode? =
+        if (name.isEmpty()) this else children[name]
 
     /**
      * Get the node of this directory indicated by local-relative [path] inside [this], or null if no such node exists.
@@ -40,15 +43,14 @@ object FileSystemNodeOperations {
      * So, 'foo/&ast;&ast;/bar' is valid, but 'foo/&ast;&ast;bar' isn't.
      * All other glob elements may be combined within a component, and apply only within that component of a matching path.
      */
-    fun Directory.glob(pattern: String): Map<Path, FileSystemNode> {
-        // To start, interpret the special components of the path literally
-        // You ought not to put a path separator inside a special pattern like [] groups, so this should be good enough.
-        // TODO: Think through what happens if someone disobeys this rule anyways
-        val patternPath = Path.of(pattern)
+    fun Directory.glob(pattern: Path): Map<Path, FileSystemNode> {
+        require(!pattern.isAbsolute) {
+            "${Directory::class.simpleName} glob patterns must be relative paths, not '$pattern'"
+        }
         // Performing breadth-first search with a map ensures that '**' expansions don't duplicate results
         // If we find the same node twice, it'll have the same expanded path, so we'll just write it into the map twice (a no-op).
         var frontier: Map<Path, FileSystemNode> = mapOf(Path.of("/") to this)
-        for (component in patternPath) {
+        for (component in pattern) {
             val c = component.name
             val newFrontier = mutableMapOf<Path, FileSystemNode>()
             when {

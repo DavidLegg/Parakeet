@@ -1,6 +1,5 @@
 package gov.nasa.jpl.parakeet.general.file_system
 
-import gov.nasa.jpl.parakeet.foundation.resources.getValue
 import gov.nasa.jpl.parakeet.foundation.tasks.ResourceScope
 import gov.nasa.jpl.parakeet.foundation.tasks.ResourceScope.Companion.now
 import gov.nasa.jpl.parakeet.foundation.tasks.TaskScope
@@ -13,16 +12,21 @@ import gov.nasa.jpl.parakeet.kernel.Effect
 import gov.nasa.jpl.parakeet.utilities.named
 import java.nio.file.Path
 import java.util.EnumSet
+import kotlin.io.path.Path
+import kotlin.io.path.div
 import kotlin.io.path.name
+import kotlin.io.path.relativeTo
 
 object FileSystemModelOperations {
     /*
      * Read Operations
      */
 
-    /** Access [path] in the current value of this model. */
+    /**
+     * Get the root [Directory], assumed to be at path "/"
+     */
     context (_: ResourceScope)
-    operator fun FileSystemModel.get(path: Path): FileSystemNode? = getValue()[path]
+    fun FileSystemModel.getRoot() = get(Path("/")) as Directory
 
     /**
      * Return all file nodes matching the glob [pattern].
@@ -30,7 +34,18 @@ object FileSystemModelOperations {
      * @see [Directory.glob]
      */
     context (_: ResourceScope)
-    fun FileSystemModel.glob(pattern: String): Map<Path, FileSystemNode> = getValue().glob(pattern)
+    fun FileSystemModel.glob(pattern: Path): Map<Path, FileSystemNode> {
+        // TODO: For performance, we may want to extract the longest prefix of pattern that's literal, and `get` that.
+        //   Then we can glob-search down from that.
+        //   If we're dealing with a model that uses more sophisticated split-backings, this would sample fewer cells.
+        return if (pattern.isAbsolute) {
+            // Access the absolute root path, then glob the pattern
+            (get(Path("/")) as Directory).glob(pattern.relativeTo(Path("/")))
+        } else {
+            // Access the current working dir, then glob the pattern
+            (get(Path("")) as Directory).glob(pattern)
+        }
+    }
 
     // TODO: Other common file operations, like ls and globbing?
     // Should these be written as FSN operations, and then just lifted to model operations, maybe?
@@ -85,7 +100,7 @@ object FileSystemModelOperations {
     context (_: TaskScope)
     fun FileSystemModel.mkdirP(path: Path) {
         val now = now()
-        var existingDir = getValue()
+        var existingDir = get(path.root) as Directory
         for ((i, component) in path.withIndex()) {
             // We're looking for the highest directory we need to create
             val nextDir = existingDir[component.name]
@@ -104,7 +119,7 @@ object FileSystemModelOperations {
                     childDir, component -> Directory(component.name, now, children = mapOf(childDir.name to childDir))
                 }
                 // Finally, we set that newDir at its path, which includes newDir's name itself
-                change(path.subpath(0, i + 1), { _: FileSystemNode? -> newDir }.named { "mkdir -P" }, checkPreconditions = {
+                change(path.subpath(i + 1), { _: FileSystemNode? -> newDir }.named { "mkdir -P" }, checkPreconditions = {
                     require(it == null) {
                         "Path $path already exists"
                     }
@@ -208,4 +223,15 @@ object FileSystemModelOperations {
             }
         })
     }
+}
+
+/**
+ * Return the subpath of [this] [Path] up to and including component [end].
+ *
+ * The result will be absolute or relative to match [this].
+ */
+private fun Path.subpath(end: Int): Path {
+    val relativePath = subpath(0, end)
+    // Somewhat awkwardly, we need to rebuild an absolute path if we started with an absolute path
+    return root?.let { it / relativePath } ?: relativePath
 }

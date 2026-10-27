@@ -5,9 +5,8 @@ import gov.nasa.jpl.parakeet.foundation.resources.ResourceEffect
 import gov.nasa.jpl.parakeet.foundation.resources.ResourceEffectBatch
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.Discrete
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteDynamicsMonad
-import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResource
-import gov.nasa.jpl.parakeet.foundation.resources.discrete.DiscreteResourceOperations
 import gov.nasa.jpl.parakeet.foundation.resources.discrete.MutableDiscreteResource
+import gov.nasa.jpl.parakeet.foundation.resources.getValue
 import gov.nasa.jpl.parakeet.foundation.resources.resource
 import gov.nasa.jpl.parakeet.foundation.resources.testConcurrentEffects
 import gov.nasa.jpl.parakeet.foundation.tasks.InitScope
@@ -20,13 +19,51 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.get
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.set
 import gov.nasa.jpl.parakeet.kernel.Effect
 import java.nio.file.Path
+import kotlin.io.path.Path
 import kotlin.io.path.name
 import kotlin.io.path.relativeTo
 import kotlin.time.Instant
 
-interface FileSystemModel : DiscreteResource<Directory> {
-    context (_: TaskScope)
-    fun change(path: Path, effect: Effect<FileSystemNode?>)
+// A remark about FileSystemModel.get(Path)
+// I initially wrote FileSystemModel as an extension of DiscreteResource<Directory>,
+// and hence writing get(Path) as an extension method wrapping getValue()
+// The issue is that I'd like to have both a root FileSystemModel that accepts absolute paths,
+// and a "working directory" or "scoped" FileSystemModel which operates the same way, but with relative paths.
+// Deciding the extension-method version makes that problem unreconcilable.
+// Maybe I could permit any FileSystemModel to accept both kinds of paths, but that seems to open bug opportunities.
+// A path intended to be relative (or absolute), mistakenly converted to the other kind,
+// producing a "quiet" bug accessing the wrong file instead of a "loud" bug throwing an exception.
+
+// The simple resolution is to make get(Path) the fundamental accessor on FileSystemModel, rather than making it a resource.
+// Each implementation of FileSystemModel can then decide how to interpret different kinds of paths.
+// Flipping the relationship, we can then define an extension method which connects a path to FileSystemModel
+// to build a DiscreteResource<FileSystemNode?> tracking that file, which is roughly equal in function.
+
+// As a side effect of this decision, since the Resource interface is somewhat hidden, presumably we could change the underlying implementation.
+// For example, we might use dynamic resources to split the FileSystemModel into multiple backing resources to deconflict effects at scale.
+
+interface FileSystemModel {
+    /**
+     * Return the [FileSystemNode] (if any) stored at [path].
+     *
+     * [path] may be relative or absolute, with some [FileSystemModel] implementations accepting one, the other, or both.
+     * If [path] is null, get the base directory on [FileSystemModel] implementations accepting relative paths,
+     * consistent with [Path.root].
+     */
+    context (_: ResourceScope)
+    operator fun get(path: Path?): FileSystemNode?
+
+    /**
+     * Change the [FileSystemNode] stored at [path] by [effect].
+     *
+     * [path] obeys the same rules as [get] for this implementation of [FileSystemModel].
+     * If no [FileSystemNode] is stored at [path], null is given to [effect].
+     * If [effect] returns null, the node stored at [path], if any, is removed.
+     *
+     * @see get
+     */
+    context(_: TaskScope)
+    fun change(path: Path?, effect: Effect<FileSystemNode?>)
 
     data class FileSystemEffect(
         val path: Path,
@@ -65,12 +102,22 @@ fun FileSystemModel(name: String, initialDirectory: Directory = Directory("", no
             resource(name, Discrete(initialDirectory), ::resolveFileSystemEffects)
         }
 
-        context(_: TaskScope)
-        override fun change(path: Path, effect: Effect<FileSystemNode?>) =
-            base.emit(FileSystemEffect(path.normalize(), effect, now()))
+        context(_: ResourceScope)
+        override fun get(path: Path?): FileSystemNode? {
+            require(path != null && path.isAbsolute) {
+                "Base ${FileSystemModel::class.simpleName}.get requires absolute paths, not '$path'."
+            }
+            val normalPath = path.normalize()
+            return base.getValue()[normalPath.relativeTo(normalPath.root)]
+        }
 
-        context(scope: ResourceScope)
-        override fun getDynamics(): FullDynamics<Discrete<Directory>> = base.getDynamics()
+        context(_: TaskScope)
+        override fun change(path: Path?, effect: Effect<FileSystemNode?>) {
+            require(path != null && path.isAbsolute) {
+                "Base ${FileSystemModel::class.simpleName}.change requires absolute paths, not '$path'."
+            }
+            base.emit(FileSystemEffect(path.normalize().relativeTo(Path("/")), effect, now()))
+        }
     }
 }
 
@@ -185,4 +232,18 @@ private fun <T, R> groupByRootPath(
         // else: we found an existing group to belong to, nothing to do
     }
     return result
+}
+
+/**
+ * Construct a [FileSystemModel] accepting relative paths, which defers back to [this].
+ * Relative paths are resolved against [baseDir].
+ */
+fun FileSystemModel.workingIn(baseDir: Path): FileSystemModel = object : FileSystemModel {
+    context(_: ResourceScope)
+    override fun get(path: Path?): FileSystemNode? = this@workingIn[path?.let(baseDir::resolve) ?: baseDir]
+
+    context(_: TaskScope)
+    override fun change(path: Path?, effect: Effect<FileSystemNode?>) {
+        this@workingIn.change(path?.let(baseDir::resolve) ?: baseDir, effect)
+    }
 }
