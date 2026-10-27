@@ -4,6 +4,7 @@ import gov.nasa.jpl.parakeet.foundation.tasks.TaskOperations.delayUntil
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.getRoot
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdirP
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.touch
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemTestUtils.checkFileNode
 import gov.nasa.jpl.parakeet.general.testing.UnitTesting.runUnitTest
 import org.junit.jupiter.api.Test
@@ -72,6 +73,53 @@ class FileSystemModelTest {
                                     }
                                 )
                             },
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `touch creates empty files and updates modified times`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/foo"))
+            fsm.touch(Path("/foo/a.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 1, 0,
+                    "foo" to {
+                        isDir(t1, t1, 1, 0,
+                            "a.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t2)
+            fsm.touch(Path("/foo/a.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 1, 0,
+                    "foo" to {
+                        isDir(t1, t1, 1, 0,
+                            "a.txt" to { isFile(t1, t2, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t3)
+            fsm.touch(Path("/foo/b.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, 0,
+                    "foo" to {
+                        isDir(t1, t3, 2, 0,
+                            "a.txt" to { isFile(t1, t2, sizeBytes = 0) },
+                            "b.txt" to { isFile(t3, t3, sizeBytes = 0) },
                         )
                     },
                 )
