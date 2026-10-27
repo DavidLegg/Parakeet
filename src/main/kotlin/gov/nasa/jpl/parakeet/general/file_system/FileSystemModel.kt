@@ -56,17 +56,22 @@ val FileSystemEffect.directEffect: Effect<FileSystemNode?> get() = {
 }
 
 context (scope: InitScope)
-fun FileSystemModel(name: String) = object : FileSystemModel {
-    private val base: MutableDiscreteResource<Directory> = context(scope) {
-        resource(name, Discrete(Directory("", now())), ::resolveFileSystemEffects)
+fun FileSystemModel(name: String, initialDirectory: Directory = Directory("", now())): FileSystemModel {
+    require(initialDirectory.name.isEmpty()) {
+        "root directory for a ${FileSystemModel::class.simpleName} must have empty string as its name"
     }
+    return object : FileSystemModel {
+        private val base: MutableDiscreteResource<Directory> = context(scope) {
+            resource(name, Discrete(initialDirectory), ::resolveFileSystemEffects)
+        }
 
-    context (_: TaskScope)
-    override fun change(path: Path, effect: Effect<FileSystemNode?>) =
-        base.emit(FileSystemEffect(path.normalize(), effect, now()))
+        context(_: TaskScope)
+        override fun change(path: Path, effect: Effect<FileSystemNode?>) =
+            base.emit(FileSystemEffect(path.normalize(), effect, now()))
 
-    context(scope: ResourceScope)
-    override fun getDynamics(): FullDynamics<Discrete<Directory>> = base.getDynamics()
+        context(scope: ResourceScope)
+        override fun getDynamics(): FullDynamics<Discrete<Directory>> = base.getDynamics()
+    }
 }
 
 /**
