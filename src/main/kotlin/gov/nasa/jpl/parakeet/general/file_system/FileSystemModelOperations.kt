@@ -320,6 +320,12 @@ object FileSystemModelOperations {
             // If dst is corrupted, fail instead of guessing whether it's a directory or a file
             is Corrupted -> throw IllegalArgumentException("mv failed - dst $dst is corrupted")
         }
+        // If the resolved destination path is src itself, this mv is a no-op. Quit early.
+        if (resolvedDst == src) return
+        // Otherwise, make sure we aren't trying to move a directory into a sub-dir of itself.
+        require(!resolvedDst.startsWith(src)) {
+            "Cannot mv $src to its own sub-directory $resolvedDst"
+        }
         // Moving a file doesn't generally affect the timestamps
         val newTarget = target.renamed(resolvedDst.name)
         change(src, { _: FileSystemNode? -> null }.named { "mv (remove src)" },

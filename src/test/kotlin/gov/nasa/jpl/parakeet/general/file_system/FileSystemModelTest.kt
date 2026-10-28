@@ -647,4 +647,93 @@ class FileSystemModelTest {
             assertEquals(rootAtT4, fsm.getRoot())
         }
     }
+
+    @Test
+    fun `mv moves a non-empty directory with its contents`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        val t4 = t3 + 1.minutes
+        val content = "hello".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdirP(Path("/src-dir/proj/sub"))
+            fsm.write(Path("/src-dir/proj/a.txt"), content)
+            fsm.touch(Path("/src-dir/proj/sub/b.txt"))
+            fsm.mkdir(Path("/dst-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, content.size,
+                    "src-dir" to {
+                        isDir(t1, t1, 2, content.size,
+                            "proj" to {
+                                isDir(t1, t1, 2, content.size,
+                                    "a.txt" to { isFile(t1, t1, content, content.size) },
+                                    "sub" to {
+                                        isDir(t1, t1, 1, 0,
+                                            "b.txt" to { isFile(t1, t1, null, 0) },
+                                        )
+                                    },
+                                )
+                            },
+                        )
+                    },
+                    "dst-dir" to { isDir(t1, t1, 0, 0) },
+                )
+            }
+
+            delayUntil(t2)
+            // mv into an existing directory moves the whole subtree, without modifying anything inside it
+            fsm.mv(Path("/src-dir/proj"), Path("/dst-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, content.size,
+                    "src-dir" to { isDir(t1, t2, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t2, 2, content.size,
+                            "proj" to {
+                                isDir(t1, t1, 2, content.size,
+                                    "a.txt" to { isFile(t1, t1, content, content.size) },
+                                    "sub" to {
+                                        isDir(t1, t1, 1, 0,
+                                            "b.txt" to { isFile(t1, t1, null, 0) },
+                                        )
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t3)
+            // mv to a path that doesn't exist renames the directory, again leaving its contents alone
+            fsm.mv(Path("/dst-dir/proj"), Path("/dst-dir/renamed-proj"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, content.size,
+                    "src-dir" to { isDir(t1, t2, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t3, 2, content.size,
+                            "renamed-proj" to {
+                                isDir(t1, t1, 2, content.size,
+                                    "a.txt" to { isFile(t1, t1, content, content.size) },
+                                    "sub" to {
+                                        isDir(t1, t1, 1, 0,
+                                            "b.txt" to { isFile(t1, t1, null, 0) },
+                                        )
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t4)
+            val rootAtT4 = fsm.getRoot()
+            // mv cannot move a project into its own subdirectory
+            // It must fail, and must leave the file system untouched
+            assertFailsWith<IllegalArgumentException> { fsm.mv(Path("/dst-dir/renamed-proj"), Path("/dst-dir/renamed-proj/sub")) }
+            assertEquals(rootAtT4, fsm.getRoot())
+        }
+    }
 }
