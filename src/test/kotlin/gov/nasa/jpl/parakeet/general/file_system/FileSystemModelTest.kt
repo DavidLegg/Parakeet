@@ -4,6 +4,7 @@ import gov.nasa.jpl.parakeet.foundation.tasks.TaskOperations.delayUntil
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.getRoot
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdirP
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mv
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rm
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.WriteMode
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rmLeaf
@@ -483,6 +484,94 @@ class FileSystemModelTest {
             checkFileNode(fsm.getRoot()) {
                 isDir(start, t3, 0, 0,
                     "other-dir" to { isDir(t1, t4, 0, 0) },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `mv moves a file into a directory or to a new name`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        val t4 = t3 + 1.minutes
+        val t5 = t4 + 1.minutes
+        val content = "hello".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/src-dir"))
+            fsm.mkdir(Path("/dst-dir"))
+            fsm.write(Path("/src-dir/a.txt"), content)
+            val rootAtT1 = fsm.getRoot()
+            checkFileNode(rootAtT1) {
+                isDir(start, t1, 1, content.size,
+                    "src-dir" to {
+                        isDir(t1, t1, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                    "dst-dir" to { isDir(t1, t1, 0, 0) },
+                )
+            }
+
+            delayUntil(t2)
+            // mv fails if src doesn't exist, and must not change the file system when it fails
+            assertFailsWith<IllegalArgumentException> { fsm.mv(Path("/src-dir/missing.txt"), Path("/dst-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+
+            // mv into an existing directory keeps the file's name
+            fsm.mv(Path("/src-dir/a.txt"), Path("/dst-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 1, content.size,
+                    "src-dir" to { isDir(t1, t2, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t2, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t3)
+            // mv to a path that doesn't exist renames the file
+            fsm.mv(Path("/dst-dir/a.txt"), Path("/dst-dir/b.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 1, content.size,
+                    "src-dir" to { isDir(t1, t2, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t3, 1, content.size,
+                            "b.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t4)
+            fsm.touch(Path("/dst-dir/c.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, content.size,
+                    "src-dir" to { isDir(t1, t2, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t4, 2, content.size,
+                            "b.txt" to { isFile(t1, t1, content, content.size) },
+                            "c.txt" to { isFile(t4, t4, null, 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t5)
+            // mv onto an existing file overwrites it
+            fsm.mv(Path("/dst-dir/b.txt"), Path("/dst-dir/c.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 1, content.size,
+                    "src-dir" to { isDir(t1, t2, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t5, 1, content.size,
+                            "c.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
                 )
             }
         }

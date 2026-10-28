@@ -2,6 +2,7 @@ package gov.nasa.jpl.parakeet.general.file_system
 
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNode.*
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.get
+import org.opentest4j.AssertionFailedError
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.div
@@ -76,10 +77,13 @@ object FileSystemTestUtils {
 
             private inline fun assertHere(block: () -> Unit) = try {
                 block()
-            } catch (e: AssertionError) {
-                throw AssertionError("Assertion failed at $location", e)
+            } catch (e: AssertionFailedError) {
+                // If e already has the location of the failure, re-throw it.
+                // This takes advantage of the fact that sub-path strings are substrings
+                throw (e.takeIf { "at $location" in (it.message ?: "") }
+                    ?: AssertionFailedError("Assertion failed at $location", e))
             } catch (e: Throwable) {
-                throw RuntimeException("Unexpected exception at $location", e)
+                throw AssertionFailedError("Unexpected exception at $location", e)
             }
         })
     }

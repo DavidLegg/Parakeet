@@ -305,16 +305,17 @@ object FileSystemModelOperations {
         requireNotNull(target) {
             "Cannot mv $src - not found"
         }
-        val newTarget = target.modifiedAt(now())
         val destination = this[dst]
         val resolvedDst = when (destination) {
             // If dst is an existing directory, mv into that directory
-            is Directory -> dst / newTarget.name
+            is Directory -> dst / target.name
             // If dst names an existing file, or nothing at all, mv to that exact path
             is File, null -> dst
             // If dst is corrupted, fail instead of guessing whether it's a directory or a file
             is Corrupted -> throw IllegalArgumentException("mv failed - dst $dst is corrupted")
         }
+        // Moving a file doesn't generally affect the timestamps
+        val newTarget = target.renamed(resolvedDst.name)
         change(src, { _: FileSystemNode? -> null }.named { "mv (remove src)" },
             checkPreconditions = {
                 require(it == target) {
@@ -340,16 +341,16 @@ object FileSystemModelOperations {
         requireNotNull(target) {
             "Cannot cp $src - not found"
         }
-        val newTarget = target.modifiedAt(now())
         val destination = this[dst]
         val resolvedDst = when (destination) {
             // If dst is an existing directory, mv into that directory
-            is Directory -> dst / newTarget.name
+            is Directory -> dst / target.name
             // If dst names an existing file, or nothing at all, mv to that exact path
             is File, null -> dst
             // If dst is corrupted, fail instead of guessing whether it's a directory or a file
             is Corrupted -> throw IllegalArgumentException("cp failed - dst $dst is corrupted")
         }
+        val newTarget = target.renamed(resolvedDst.name).modifiedAt(now())
         change(resolvedDst, { _: FileSystemNode? -> newTarget }.named { "cp from $src" },
             checkPreconditions = {
                 require(it == null || (it is File && newTarget is File)) {
@@ -368,6 +369,18 @@ private fun Path.subpath(end: Int): Path {
     val relativePath = subpath(0, end)
     // Somewhat awkwardly, we need to rebuild an absolute path if we started with an absolute path
     return root?.let { it / relativePath } ?: relativePath
+}
+
+private fun FileSystemNode.renamed(name: String): FileSystemNode = when (this) {
+    is File -> copy(name = name)
+    is Directory -> copy(name = name)
+    is Corrupted -> copy(name = name)
+}
+
+private fun FileSystemNode.createdAt(time: Instant): FileSystemNode = when (this) {
+    is File -> copy(createdTime = time)
+    is Directory -> copy(createdTime = time)
+    is Corrupted -> copy(createdTime = time)
 }
 
 private fun FileSystemNode.modifiedAt(time: Instant): FileSystemNode = when (this) {
