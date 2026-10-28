@@ -1,6 +1,7 @@
 package gov.nasa.jpl.parakeet.general.file_system
 
 import gov.nasa.jpl.parakeet.foundation.tasks.TaskOperations.delayUntil
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.cp
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.getRoot
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdirP
@@ -490,7 +491,7 @@ class FileSystemModelTest {
     }
 
     @Test
-    fun `mv moves a file into a directory or to a new name`() {
+    fun `mv moves a file into a directory, to a new name, or over an existing file`() {
         val start = Instant.parse("2000-01-01T00:00:00Z")
         val t1 = start + 1.minutes
         val t2 = t1 + 1.minutes
@@ -734,6 +735,100 @@ class FileSystemModelTest {
             // It must fail, and must leave the file system untouched
             assertFailsWith<IllegalArgumentException> { fsm.mv(Path("/dst-dir/renamed-proj"), Path("/dst-dir/renamed-proj/sub")) }
             assertEquals(rootAtT4, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `cp copies a file into a directory, to a new name, or over an existing file`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        val t4 = t3 + 1.minutes
+        val t5 = t4 + 1.minutes
+        val content = "hello".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/src-dir"))
+            fsm.mkdir(Path("/dst-dir"))
+            fsm.write(Path("/src-dir/a.txt"), content)
+            val rootAtT1 = fsm.getRoot()
+            checkFileNode(rootAtT1) {
+                isDir(start, t1, 1, content.size,
+                    "src-dir" to {
+                        isDir(t1, t1, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                    "dst-dir" to { isDir(t1, t1, 0, 0) },
+                )
+            }
+
+            delayUntil(t2)
+            // cp fails if src doesn't exist, and must not change the file system when it fails
+            assertFailsWith<IllegalArgumentException> { fsm.cp(Path("/src-dir/missing.txt"), Path("/dst-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+
+            // cp into an existing directory keeps the file's name.
+            // The copy is a new file, created now, and the original is left alone.
+            fsm.cp(Path("/src-dir/a.txt"), Path("/dst-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, content.size * 2,
+                    "src-dir" to {
+                        isDir(t1, t1, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                    "dst-dir" to {
+                        isDir(t1, t2, 1, content.size,
+                            "a.txt" to { isFile(t2, t2, content, content.size) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t3)
+            // cp to a path that doesn't exist creates a copy under the new name
+            fsm.cp(Path("/dst-dir/a.txt"), Path("/dst-dir/b.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 3, content.size * 3,
+                    "src-dir" to {
+                        isDir(t1, t1, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                    "dst-dir" to {
+                        isDir(t1, t3, 2, content.size * 2,
+                            "a.txt" to { isFile(t2, t2, content, content.size) },
+                            "b.txt" to { isFile(t3, t3, content, content.size) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t4)
+            fsm.touch(Path("/dst-dir/c.txt"))
+
+            delayUntil(t5)
+            // cp onto an existing file overwrites it in place.
+            // The existing file keeps its created time, and takes the source's content and size.
+            fsm.cp(Path("/dst-dir/b.txt"), Path("/dst-dir/c.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 4, content.size * 4,
+                    "src-dir" to {
+                        isDir(t1, t1, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                    "dst-dir" to {
+                        isDir(t1, t4, 3, content.size * 3,
+                            "a.txt" to { isFile(t2, t2, content, content.size) },
+                            "b.txt" to { isFile(t3, t3, content, content.size) },
+                            "c.txt" to { isFile(t4, t5, content, content.size) },
+                        )
+                    },
+                )
+            }
         }
     }
 }

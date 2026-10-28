@@ -353,16 +353,36 @@ object FileSystemModelOperations {
         requireNotNull(target) {
             "Cannot cp $src - not found"
         }
+        val now = now()
         val destination = this[dst]
-        val resolvedDst = when (destination) {
+        val resolvedDst: Path
+        val newCreatedTime: Instant
+        when (destination) {
             // If dst is an existing directory, mv into that directory
-            is Directory -> dst / target.name
-            // If dst names an existing file, or nothing at all, mv to that exact path
-            is File, null -> dst
+            is Directory -> {
+                resolvedDst = dst / target.name
+                newCreatedTime = now
+            }
+            // If dst names an existing file, or nothing at all, cp to that exact path
+            is File -> {
+                require (target is File) {
+                    "Cannot cp $src (non-file node) to $dst (a file)"
+                }
+                resolvedDst = dst
+                // Creation times are not part of POSIX, but typical Linux systems reuse the inode in this case.
+                // This leads to preserving the destination's created time.
+                newCreatedTime = destination.createdTime
+            }
+            null -> {
+                resolvedDst = dst
+                newCreatedTime = now
+            }
             // If dst is corrupted, fail instead of guessing whether it's a directory or a file
-            is Corrupted -> throw IllegalArgumentException("cp failed - dst $dst is corrupted")
+            is Corrupted -> {
+                throw IllegalArgumentException("cp failed - dst $dst is corrupted")
+            }
         }
-        val newTarget = target.renamed(resolvedDst.name).modifiedAt(now())
+        val newTarget = target.renamed(resolvedDst.name).createdAt(newCreatedTime).modifiedAt(now)
         change(resolvedDst, { _: FileSystemNode? -> newTarget }.named { "cp from $src" },
             checkPreconditions = {
                 require(it == null || (it is File && newTarget is File)) {
