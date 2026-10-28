@@ -224,4 +224,37 @@ class FileSystemModelTest {
             assertEquals(rootAtT1, fsm.getRoot())
         }
     }
+
+    @Test
+    fun `write in create-or-overwrite mode creates or replaces files`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val content1 = "hello".toByteArray()
+        val content2 = "goodbye".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            // Write with content:
+            fsm.write(Path("/a.txt"), content1, writeMode = WriteMode.CreateOrOverwrite)
+            // Size-only modeling:
+            fsm.write(Path("/b.txt"), sizeBytes = 1024, writeMode = WriteMode.CreateOrOverwrite)
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, content1.size + 1024,
+                    "a.txt" to { isFile(t1, t1, content1, content1.size) },
+                    "b.txt" to { isFile(t1, t1, null, 1024) },
+                )
+            }
+
+            delayUntil(t2)
+            fsm.write(Path("/a.txt"), content2, writeMode = WriteMode.CreateOrOverwrite)
+            fsm.write(Path("/b.txt"), sizeBytes = 2048, writeMode = WriteMode.CreateOrOverwrite)
+            // Overwriting preserves the created time, replaces the content and size, and doesn't modify the parent directory.
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, content2.size + 2048,
+                    "a.txt" to { isFile(t1, t2, content2, content2.size) },
+                    "b.txt" to { isFile(t1, t2, null, 2048) },
+                )
+            }
+        }
+    }
 }
