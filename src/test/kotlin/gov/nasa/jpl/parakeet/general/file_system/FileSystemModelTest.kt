@@ -257,4 +257,37 @@ class FileSystemModelTest {
             }
         }
     }
+
+    @Test
+    fun `write in append mode creates or extends files`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val content1 = "hello".toByteArray()
+        val content2 = "goodbye".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            // Write with content:
+            fsm.write(Path("/a.txt"), content1, writeMode = WriteMode.Append)
+            // Size-only modeling:
+            fsm.write(Path("/b.txt"), sizeBytes = 1024, writeMode = WriteMode.Append)
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, content1.size + 1024,
+                    "a.txt" to { isFile(t1, t1, content1, content1.size) },
+                    "b.txt" to { isFile(t1, t1, null, 1024) },
+                )
+            }
+
+            delayUntil(t2)
+            fsm.write(Path("/a.txt"), content2, writeMode = WriteMode.Append)
+            fsm.write(Path("/b.txt"), sizeBytes = 2048, writeMode = WriteMode.Append)
+            // Appending preserves the created time, concatenates content, adds sizes, and doesn't modify the parent directory.
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, content1.size + content2.size + 1024 + 2048,
+                    "a.txt" to { isFile(t1, t2, content1 + content2, content1.size + content2.size) },
+                    "b.txt" to { isFile(t1, t2, null, 1024 + 2048) },
+                )
+            }
+        }
+    }
 }
