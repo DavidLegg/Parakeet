@@ -24,6 +24,7 @@ import kotlin.io.path.Path
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
@@ -1208,6 +1209,55 @@ class FileSystemModelTest {
             assertMap(fsm.glob(Path("/esc/[\\]a].txt")),
                 Path("/esc/a.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
                 Path("/esc/].txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+        }
+    }
+
+    @Test
+    fun `glob double star matches any number of directories`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdirP(Path("/foo/bar/baz"))
+            fsm.mkdir(Path("/other"))
+            fsm.touch(Path("/a.txt"))
+            fsm.touch(Path("/foo/a.txt"))
+            fsm.touch(Path("/foo/b.txt"))
+            fsm.touch(Path("/foo/bar/a.txt"))
+            fsm.touch(Path("/foo/bar/baz/c.txt"))
+            fsm.touch(Path("/other/a.txt"))
+
+            // ** can match zero directories, so a.txt directly under the root matches too
+            assertMap(fsm.glob(Path("/**/a.txt")),
+                Path("/a.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+                Path("/foo/a.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+                Path("/foo/bar/a.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+                Path("/other/a.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            // ** only searches below the directory before it
+            assertMap(fsm.glob(Path("/foo/**/a.txt")),
+                Path("/foo/a.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+                Path("/foo/bar/a.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            // Repeated ** can match the same path in several ways, but it's only reported once
+            assertMap(fsm.glob(Path("/**/**/c.txt")),
+                Path("/foo/bar/baz/c.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            assert(fsm.glob(Path("/**/missing.txt")).isEmpty())
+
+            // A trailing ** matches the directory itself and everything below it, files and directories alike
+            assertMap(fsm.glob(Path("/foo/**")),
+                Path("/foo") to { assertIs<Directory>(it) },
+                Path("/foo/a.txt") to { assertIs<File>(it) },
+                Path("/foo/b.txt") to { assertIs<File>(it) },
+                Path("/foo/bar") to { assertIs<Directory>(it) },
+                Path("/foo/bar/a.txt") to { assertIs<File>(it) },
+                Path("/foo/bar/baz") to { assertIs<Directory>(it) },
+                Path("/foo/bar/baz/c.txt") to { assertIs<File>(it) },
             )
         }
     }
