@@ -996,4 +996,25 @@ class FileSystemModelTest {
             }
         }
     }
+
+    @Test
+    fun `recursive cp can still copy a file`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val content = "hello".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.write(Path("/a.txt"), content)
+
+            delayUntil(t2)
+            fsm.cpRecursive(Path("/a.txt"), Path("/b.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t2, 2, content.size * 2,
+                    "a.txt" to { isFile(t1, t1, content, content.size) },
+                    "b.txt" to { isFile(t2, t2, content, content.size) },
+                )
+            }
+        }
+    }
 }
