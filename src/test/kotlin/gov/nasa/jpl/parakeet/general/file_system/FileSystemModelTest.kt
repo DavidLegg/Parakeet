@@ -21,6 +21,7 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemTestUtils.checkFileNo
 import gov.nasa.jpl.parakeet.general.testing.UnitTesting.runUnitTest
 import org.junit.jupiter.api.Test
 import kotlin.io.path.Path
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.time.Duration.Companion.hours
@@ -1069,11 +1070,9 @@ class FileSystemModelTest {
             fsm.touch(Path("/foo/b.txt"))
 
             // A literal path that exists matches exactly that file
-            val matches = fsm.glob(Path("/foo/a.txt"))
-            assertEquals(setOf(Path("/foo/a.txt")), matches.keys)
-            checkFileNode(matches.getValue(Path("/foo/a.txt"))) {
-                isFile(t1, t1, content, content.size)
-            }
+            assertMap(fsm.glob(Path("/foo/a.txt")),
+                Path("/foo/a.txt") to { checkFileNode(it) { isFile(t1, t1, content, content.size) } },
+            )
 
             // A literal path that doesn't exist matches nothing
             assert(fsm.glob(Path("/foo/c.txt")).isEmpty())
@@ -1084,25 +1083,62 @@ class FileSystemModelTest {
     fun `glob component with a star matches any char sequence`() {
         val start = Instant.parse("2000-01-01T00:00:00Z")
         val t1 = start + 1.minutes
+        val content = "hello".toByteArray()
         runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
             delayUntil(t1)
             fsm.mkdir(Path("/foo"))
-            fsm.touch(Path("/foo/a.txt"))
-            fsm.touch(Path("/foo/b.txt"))
+            fsm.write(Path("/foo/a.txt"), content)
+            fsm.touch(Path("/foo/bcd.txt"))
             fsm.mkdir(Path("/bar"))
             fsm.touch(Path("/bar/a.txt"))
 
-            val txtMatches = fsm.glob(Path("/foo/*.txt"))
-            assertEquals(setOf(Path("/foo/a.txt"), Path("/foo/b.txt")), txtMatches.keys)
-            for (node in txtMatches.values) {
-                checkFileNode(node) { isFile(t1, t1, null, 0) }
-            }
+            assertMap(fsm.glob(Path("/foo/*.txt")),
+                Path("/foo/a.txt") to { checkFileNode(it) { isFile(t1, t1, content, content.size) } },
+                Path("/foo/bcd.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
 
-            val dirMatches = fsm.glob(Path("/*/a.txt"))
-            assertEquals(setOf(Path("/foo/a.txt"), Path("/bar/a.txt")), dirMatches.keys)
-            for (node in dirMatches.values) {
-                checkFileNode(node) { isFile(t1, t1, null, 0) }
-            }
+            assertMap(fsm.glob(Path("/*/a.txt")),
+                Path("/foo/a.txt") to { checkFileNode(it) { isFile(t1, t1, content, content.size) } },
+                Path("/bar/a.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
         }
     }
+
+    @Test
+    fun `glob component with question marks matches that many chars`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val content = "hello".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/foo"))
+            fsm.write(Path("/foo/a.txt"), content)
+            fsm.touch(Path("/foo/bcd.txt"))
+            fsm.mkdir(Path("/bar"))
+            fsm.touch(Path("/bar/a.txt"))
+
+            assertMap(fsm.glob(Path("/foo/?.txt")),
+                Path("/foo/a.txt") to { checkFileNode(it) { isFile(t1, t1, content, content.size) } },
+            )
+
+            assertMap(fsm.glob(Path("/foo/???.txt")),
+                Path("/foo/bcd.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            assert(fsm.glob(Path("/?/a.txt")).isEmpty())
+
+            assertMap(fsm.glob(Path("/???/a.txt")),
+                Path("/foo/a.txt") to { checkFileNode(it) { isFile(t1, t1, content, content.size) } },
+                Path("/bar/a.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+        }
+    }
+}
+
+private fun <K, V> assertMap(actualMap: Map<K, V>, vararg entryAssertions: Pair<K, (V) -> Unit>) {
+    for ((k, vAssertion) in entryAssertions) {
+        assertContains(actualMap, k)
+        vAssertion(actualMap.getValue(k))
+    }
+    assertEquals(entryAssertions.size, actualMap.size)
 }
