@@ -1133,6 +1133,101 @@ class FileSystemModelTest {
             )
         }
     }
+
+    @Test
+    fun `glob component with a character group matches any listed char`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val content = "hello".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/foo"))
+            fsm.write(Path("/foo/a.txt"), content)
+            fsm.touch(Path("/foo/b.txt"))
+            fsm.touch(Path("/foo/d.txt"))
+            fsm.mkdir(Path("/bar"))
+            fsm.touch(Path("/bar/a.txt"))
+
+            assertMap(fsm.glob(Path("/foo/[ab].txt")),
+                Path("/foo/a.txt") to { checkFileNode(it) { isFile(t1, t1, content, content.size) } },
+                Path("/foo/b.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            assertMap(fsm.glob(Path("/foo/[cd].txt")),
+                Path("/foo/d.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            assert(fsm.glob(Path("/foo/[xyz].txt")).isEmpty())
+
+            assertMap(fsm.glob(Path("/[fx]oo/a.txt")),
+                Path("/foo/a.txt") to { checkFileNode(it) { isFile(t1, t1, content, content.size) } },
+            )
+        }
+    }
+
+    @Test
+    fun `glob character group supports ranges, negation, and escapes`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val content = "hello".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/foo"))
+            fsm.write(Path("/foo/a.txt"), content)
+            fsm.touch(Path("/foo/b.txt"))
+            fsm.touch(Path("/foo/c.txt"))
+            fsm.touch(Path("/foo/d.txt"))
+            fsm.mkdir(Path("/esc"))
+            fsm.touch(Path("/esc/a.txt"))
+            fsm.touch(Path("/esc/].txt"))
+
+            assertMap(fsm.glob(Path("/foo/[a-c].txt")),
+                Path("/foo/a.txt") to { checkFileNode(it) { isFile(t1, t1, content, content.size) } },
+                Path("/foo/b.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+                Path("/foo/c.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            assertMap(fsm.glob(Path("/foo/[^a-c].txt")),
+                Path("/foo/d.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            assertMap(fsm.glob(Path("/foo/[^ab].txt")),
+                Path("/foo/c.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+                Path("/foo/d.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            assertMap(fsm.glob(Path("/foo/[!ab].txt")),
+                Path("/foo/c.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+                Path("/foo/d.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            assertMap(fsm.glob(Path("/esc/[\\]].txt")),
+                Path("/esc/].txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+
+            assertMap(fsm.glob(Path("/esc/[\\]a].txt")),
+                Path("/esc/a.txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+                Path("/esc/].txt") to { checkFileNode(it) { isFile(t1, t1, null, 0) } },
+            )
+        }
+    }
+
+    @Test
+    fun `glob rejects malformed patterns`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            fsm.mkdir(Path("/foo"))
+
+            assertFailsWith<IllegalArgumentException> { fsm.glob(Path("/foo/[abc")) }
+            assertFailsWith<IllegalArgumentException> { fsm.glob(Path("/foo/[^abc")) }
+            assertFailsWith<IllegalArgumentException> { fsm.glob(Path("/foo/[")) }
+            assertFailsWith<IllegalArgumentException> { fsm.glob(Path("/foo/[]")) }
+            assertFailsWith<IllegalArgumentException> { fsm.glob(Path("/foo/[^]")) }
+            assertFailsWith<IllegalArgumentException> { fsm.glob(Path("/foo/a\\")) }
+            assertFailsWith<IllegalArgumentException> { fsm.glob(Path("/foo/[ab\\")) }
+            assertFailsWith<IllegalArgumentException> { fsm.glob(Path("/foo/ab**cd")) }
+        }
+    }
 }
 
 private fun <K, V> assertMap(actualMap: Map<K, V>, vararg entryAssertions: Pair<K, (V) -> Unit>) {

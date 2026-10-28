@@ -1,6 +1,7 @@
 package gov.nasa.jpl.parakeet.general.file_system
 
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNode.*
+import gov.nasa.jpl.parakeet.general.file_system.GlobPattern.*
 import java.nio.file.Path
 import kotlin.io.path.div
 import kotlin.io.path.name
@@ -35,13 +36,15 @@ object FileSystemNodeOperations {
      * - ? to match any single character
      * - &ast; to match any sequence of characters
      * - \[abc\] to match any of the included characters
-     * - \[^abc\] to match any character except the included characters
+     * - \[^abc\] or \[!abc\] to match any character except the included characters
      * - \[a-c\] to match any character in the range
      * - \[^a-c\] to match any character not in the range
      *
      * Note that &ast;&ast; must be the only thing in that component of the pattern.
      * So, 'foo/&ast;&ast;/bar' is valid, but 'foo/&ast;&ast;bar' isn't.
      * All other glob elements may be combined within a component, and apply only within that component of a matching path.
+     *
+     * @throws IllegalArgumentException if the glob pattern is malformed
      */
     fun Directory.glob(pattern: Path): Map<Path, FileSystemNode> {
         require(!pattern.isAbsolute) {
@@ -53,55 +56,44 @@ object FileSystemNodeOperations {
         for (component in pattern) {
             val c = component.name
             val newFrontier = mutableMapOf<Path, FileSystemNode>()
-            when {
-                c == "**" -> {
-                    val worklist = ArrayDeque(frontier.entries.map { (k, v) -> k to v })
-                    while (worklist.isNotEmpty()) {
-                        val (path, node) = worklist.removeFirst()
-                        // If we've already explored this path, don't duplicate effort
-                        if (path in newFrontier) continue
-                        // ** can match 0 directories, so any node we've already found is fair game
-                        newFrontier[path] = node
-                        // If this found node is a directory, add all its children to be processed too
-                        if (node is Directory) {
-                            for ((childName, child) in node.children) {
-                                worklist.add((path / childName) to child)
-                            }
+            if (c == "**") {
+                // Special case - recursive descent. Explore all descendents of everything in the frontier.
+                val worklist = ArrayDeque(frontier.entries.map { (k, v) -> k to v })
+                while (worklist.isNotEmpty()) {
+                    val (path, node) = worklist.removeFirst()
+                    // If we've already explored this path, don't duplicate effort
+                    if (path in newFrontier) continue
+                    // ** can match 0 directories, so any node we've already found is fair game
+                    newFrontier[path] = node
+                    // If this found node is a directory, add all its children to be processed too
+                    if (node is Directory) {
+                        for ((childName, child) in node.children) {
+                            worklist.add((path / childName) to child)
                         }
                     }
                 }
-                "*" in c || "?" in c -> {
-                    val cRegex = Regex(buildString {
-                        var escaped = false
-                        for (cChar in c) {
-                            if (escaped) {
-                                append(Regex.fromLiteral(cChar.toString()))
-                                escaped = false
-                            }
-                            when (cChar) {
-                                '\\' -> escaped = true
-                                '?' -> append('.')
-                                '*' -> append(".*")
-                                else -> append(Regex.fromLiteral(cChar.toString()))
-                            }
-                        }
-                    })
-                    for ((path, node) in frontier) {
-                        if (node is Directory) {
-                            for ((childName, child) in node.children) {
-                                if (childName.matches(cRegex)) {
-                                    newFrontier[path / childName] = child
+            } else {
+                when (val resolved = interpretGlobPattern(c)) {
+                    is Literal -> {
+                        // Special case - if the pattern is literal, don't iterate over all children
+                        for ((path, node) in frontier) {
+                            if (node is Directory) {
+                                val child = node[resolved.literal]
+                                if (child != null) {
+                                    newFrontier[path / resolved.literal] = child
                                 }
                             }
                         }
                     }
-                }
-                else -> {
-                    for ((path, node) in frontier) {
-                        if (node is Directory) {
-                            val child = node[c]
-                            if (child != null) {
-                                newFrontier[path / c] = child
+                    is Wildcard -> {
+                        // General case - we need to filter children by which ones match the pattern
+                        for ((path, node) in frontier) {
+                            if (node is Directory) {
+                                for ((childName, child) in node.children) {
+                                    if (resolved.regex.matches(childName)) {
+                                        newFrontier[path / childName] = child
+                                    }
+                                }
                             }
                         }
                     }
@@ -244,19 +236,15 @@ object FileSystemNodeOperations {
     }
 }
 
-/**
- * Build a regex which matches the same strings as (single-level) glob [pattern].
- *
- * Supported glob elements:
- * - any \-escaped character (interpreted literally)
- * - ? to match any single character
- * - &ast; to match any sequence of characters
- * - \[abc\] to match any of the included characters
- * - \[^abc\] to match any character except the included characters
- * - \[a-c\] to match any character in the range
- * - \[^a-c\] to match any character not in the range
- */
-private fun globToRegex(pattern: String): Regex = Regex(buildString {
+private sealed interface GlobPattern {
+    data class Literal(val literal: String) : GlobPattern
+    data class Wildcard(val regex: Regex) : GlobPattern
+}
+
+private fun interpretGlobPattern(pattern: String): GlobPattern {
+    var literalBuilder: StringBuilder? = StringBuilder()
+    val regexBuilder = StringBuilder()
+
     var i = 0
     while (i < pattern.length) {
         val c = pattern[i]
@@ -264,31 +252,71 @@ private fun globToRegex(pattern: String): Regex = Regex(buildString {
             '\\' -> {
                 // Skip the escape character and append the next char as a literal.
                 i++
-                append(Regex.fromLiteral(pattern[i].toString()))
+                require(i < pattern.length) {
+                    "Invalid glob pattern - escape not followed by another character"
+                }
+                literalBuilder?.append(pattern[i])
+                regexBuilder.append(Regex.fromLiteral(pattern[i].toString()))
             }
-            '?' -> append('.')
-            '*' -> append(".*")
+            '?' -> {
+                literalBuilder = null
+                regexBuilder.append('.')
+            }
+            '*' -> {
+                literalBuilder = null
+                regexBuilder.append(".*")
+                require(i + 1 >= pattern.length || pattern[i + 1] != '*') {
+                    "Invalid glob pattern - ** inside a glob component"
+                }
+            }
             '[' -> {
                 // Advance past the [, and build the character group as indicated
-                val charGroupStart = i
                 i++
-                while (true) {
-                    val d = pattern[i]
-                    // Within the [] group, only ] and \ (escape) have special meaning
-                    when (d) {
-                        '\\' -> i++
-                        ']' -> break
+                val charGroupPattern = buildString {
+                    append('[')
+                    // Detect if this is a negated pattern, and skip that control character if so
+                    if (i < pattern.length && (pattern[i] == '^' || pattern[i] == '!')) {
+                        append('^')
+                        i++
                     }
-                    append(pattern[i])
-                    i++
+                    while (i < pattern.length) {
+                        // Within the [] group, only ], \ (escape), and - (range indicator) have special meaning
+                        when (val d = pattern[i]) {
+                            ']' -> break
+                            '\\' -> {
+                                i++
+                                require(i < pattern.length) {
+                                    "Invalid glob pattern - escape not followed by another character"
+                                }
+                                append(Regex.fromLiteral(pattern[i].toString()))
+                            }
+                            // Since regex and glob agree on the meaning of - inside a char group, emit it literally.
+                            '-' -> append('-')
+                            else -> append(Regex.fromLiteral(d.toString()))
+                        }
+                        i++
+                    }
+                    require(i < pattern.length) {
+                        "Invalid glob pattern - unterminated character group ${pattern.substring(0, i)}"
+                    }
+                    append(']')
                 }
-                // At this point, i points to the closing square bracket.
-                // Regex and glob coincide in syntax for [] character groups, so just inline it
-                append(pattern.substring(charGroupStart..i))
+                literalBuilder = null
+                require(charGroupPattern != "[]" && charGroupPattern != "[^]") {
+                    "Invalid glob pattern - empty character group"
+                }
+                regexBuilder.append(charGroupPattern)
             }
             '{' -> TODO("Alternations are not yet supported")
-            else -> append(Regex.fromLiteral(c.toString()))
+            else -> {
+                literalBuilder?.append(c)
+                regexBuilder.append(Regex.fromLiteral(c.toString()))
+            }
         }
         i++
     }
-})
+
+    // At this point, if literalBuilder wasn't deleted above, we have a literal pattern. Otherwise, compile the regex.
+    return literalBuilder?.let { Literal(it.toString()) }
+        ?: Wildcard(Regex(regexBuilder.toString()))
+}
