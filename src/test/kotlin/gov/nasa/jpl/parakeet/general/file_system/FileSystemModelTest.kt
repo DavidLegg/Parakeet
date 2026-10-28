@@ -5,7 +5,9 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.getRo
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdirP
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rm
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.WriteMode
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.touch
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.write
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemTestUtils.checkFileNode
 import gov.nasa.jpl.parakeet.general.testing.UnitTesting.runUnitTest
 import org.junit.jupiter.api.Test
@@ -188,6 +190,38 @@ class FileSystemModelTest {
             // This allows concurrent tasks to both `rm` a file, without error. This matches the intent of "just delete the file".
             fsm.rm(Path("/foo/a.txt"))
             assertEquals(rootAtT2, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `write in create-only mode fails if the file already exists`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val content1 = "hello".toByteArray()
+        val content2 = "goodbye".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            // Write with content:
+            fsm.write(Path("/a.txt"), content1, writeMode = WriteMode.CreateOnly)
+            // Size-only modeling:
+            fsm.write(Path("/b.txt"), sizeBytes = 1024, writeMode = WriteMode.CreateOnly)
+            val rootAtT1 = fsm.getRoot()
+            checkFileNode(rootAtT1) {
+                isDir(start, t1, 2, content1.size + 1024,
+                    "a.txt" to { isFile(t1, t1, content1, content1.size) },
+                    "b.txt" to { isFile(t1, t1, null, 1024) },
+                )
+            }
+
+            delayUntil(t2)
+            assertFailsWith<IllegalArgumentException> {
+                fsm.write(Path("/a.txt"), content2, writeMode = WriteMode.CreateOnly)
+            }
+            assertFailsWith<IllegalArgumentException> {
+                fsm.write(Path("/b.txt"), sizeBytes = 2048, writeMode = WriteMode.CreateOnly)
+            }
+            assertEquals(rootAtT1, fsm.getRoot())
         }
     }
 }
