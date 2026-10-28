@@ -2,6 +2,7 @@ package gov.nasa.jpl.parakeet.general.file_system
 
 import gov.nasa.jpl.parakeet.foundation.tasks.TaskOperations.delayUntil
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.cp
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.cpRecursive
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.getRoot
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdirP
@@ -825,6 +826,170 @@ class FileSystemModelTest {
                             "a.txt" to { isFile(t2, t2, content, content.size) },
                             "b.txt" to { isFile(t3, t3, content, content.size) },
                             "c.txt" to { isFile(t4, t5, content, content.size) },
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `non-recursive cp fails to copy directories`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/empty-dir"))
+            fsm.mkdir(Path("/dst-dir"))
+            fsm.mkdir(Path("/nonempty-dir"))
+            fsm.touch(Path("/nonempty-dir/a.txt"))
+            val rootAtT1 = fsm.getRoot()
+            checkFileNode(rootAtT1) {
+                isDir(start, t1, 1, 0,
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "dst-dir" to { isDir(t1, t1, 0, 0) },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "a.txt" to { isFile(t1, t1, null, 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t2)
+            // Without recursive mode, cp must fail to copy any directory, empty or not,
+            // whether the destination is an existing directory or a new path,
+            // and must not change the file system when it fails
+            assertFailsWith<IllegalArgumentException> { fsm.cp(Path("/empty-dir"), Path("/dst-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            assertFailsWith<IllegalArgumentException> { fsm.cp(Path("/empty-dir"), Path("/new-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            assertFailsWith<IllegalArgumentException> { fsm.cp(Path("/nonempty-dir"), Path("/dst-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            assertFailsWith<IllegalArgumentException> { fsm.cp(Path("/nonempty-dir"), Path("/new-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `recursive cp copies directories`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        val t4 = t3 + 1.minutes
+        val t5 = t4 + 1.minutes
+        val content = "hello".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/empty-dir"))
+            fsm.mkdir(Path("/dst-dir"))
+            fsm.mkdir(Path("/nonempty-dir"))
+            fsm.write(Path("/nonempty-dir/a.txt"), content)
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 1, content.size,
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "dst-dir" to { isDir(t1, t1, 0, 0) },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t2)
+            // Copying an empty directory into an existing directory keeps its name.
+            // The copy is a new directory, created now, and the original is left alone.
+            fsm.cpRecursive(Path("/empty-dir"), Path("/dst-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 1, content.size,
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t2, 0, 0,
+                            "empty-dir" to { isDir(t2, t2, 0, 0) },
+                        )
+                    },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t3)
+            // Copying an empty directory to a path that doesn't exist creates a copy under the new name
+            fsm.cpRecursive(Path("/empty-dir"), Path("/new-empty-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t3, 1, content.size,
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "new-empty-dir" to { isDir(t3, t3, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t2, 0, 0,
+                            "empty-dir" to { isDir(t2, t2, 0, 0) },
+                        )
+                    },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t4)
+            // Copying a non-empty directory into an existing directory keeps its name.
+            // Every node in the copy is new, so all of them are created now, and the originals are left alone.
+            fsm.cpRecursive(Path("/nonempty-dir"), Path("/dst-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t3, 2, content.size * 2,
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "new-empty-dir" to { isDir(t3, t3, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t4, 1, content.size,
+                            "empty-dir" to { isDir(t2, t2, 0, 0) },
+                            "nonempty-dir" to {
+                                isDir(t4, t4, 1, content.size,
+                                    "a.txt" to { isFile(t4, t4, content, content.size) },
+                                )
+                            },
+                        )
+                    },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t5)
+            // Copying a non-empty directory to a path that doesn't exist creates a copy under the new name
+            fsm.cpRecursive(Path("/nonempty-dir"), Path("/new-nonempty-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t5, 3, content.size * 3,
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "new-empty-dir" to { isDir(t3, t3, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t4, 1, content.size,
+                            "empty-dir" to { isDir(t2, t2, 0, 0) },
+                            "nonempty-dir" to {
+                                isDir(t4, t4, 1, content.size,
+                                    "a.txt" to { isFile(t4, t4, content, content.size) },
+                                )
+                            },
+                        )
+                    },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, content.size,
+                            "a.txt" to { isFile(t1, t1, content, content.size) },
+                        )
+                    },
+                    "new-nonempty-dir" to {
+                        isDir(t5, t5, 1, content.size,
+                            "a.txt" to { isFile(t5, t5, content, content.size) },
                         )
                     },
                 )

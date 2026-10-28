@@ -348,10 +348,15 @@ object FileSystemModelOperations {
      * @see mv
      */
     context (_: TaskScope)
-    fun FileSystemModel.cp(src: Path, dst: Path) {
+    fun FileSystemModel.cp(src: Path, dst: Path, recursive: Boolean = false) {
         val target = this[src]
         requireNotNull(target) {
             "Cannot cp $src - not found"
+        }
+        if (target is Directory) {
+            require(recursive) {
+                "Cannot cp directory $src because recursive mode is not enabled"
+            }
         }
         val now = now()
         val destination = this[dst]
@@ -382,7 +387,14 @@ object FileSystemModelOperations {
                 throw IllegalArgumentException("cp failed - dst $dst is corrupted")
             }
         }
-        val newTarget = target.renamed(resolvedDst.name).createdAt(newCreatedTime).modifiedAt(now)
+
+        fun FileSystemNode.recursivelySetTimes(topLevelCreatedTime: Instant = now): FileSystemNode = when (this) {
+            is File -> this.copy(createdTime = topLevelCreatedTime, modifiedTime = now)
+            is Directory -> this.copy(createdTime = topLevelCreatedTime, modifiedTime = now, children = children.mapValues { it.value.recursivelySetTimes() })
+            is Corrupted -> this.copy(createdTime = topLevelCreatedTime, modifiedTime = now)
+        }
+
+        val newTarget = target.renamed(resolvedDst.name).recursivelySetTimes(newCreatedTime)
         change(resolvedDst, { _: FileSystemNode? -> newTarget }.named { "cp from $src" },
             checkPreconditions = {
                 require(it == null || (it is File && newTarget is File)) {
@@ -390,6 +402,15 @@ object FileSystemModelOperations {
                 }
             })
     }
+
+
+    /**
+     * Approximation of shell command `cp -R`.
+     *
+     * @see mv
+     */
+    context (_: TaskScope)
+    fun FileSystemModel.cpRecursive(src: Path, dst: Path) = cp(src, dst, recursive = true)
 }
 
 /**
