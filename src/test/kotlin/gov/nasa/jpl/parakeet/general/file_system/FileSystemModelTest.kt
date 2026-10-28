@@ -6,6 +6,7 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdirP
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rm
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.WriteMode
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rmLeaf
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rmdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.touch
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.write
@@ -337,6 +338,71 @@ class FileSystemModelTest {
                             "a.txt" to { isFile(t1, t1, sizeBytes = 0) },
                         )
                     },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `rmLeaf removes files and empty directories`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/foo"))
+            fsm.touch(Path("/foo/a.txt"))
+            fsm.mkdir(Path("/empty-dir"))
+            fsm.mkdir(Path("/nonempty-dir"))
+            fsm.touch(Path("/nonempty-dir/x.txt"))
+            val rootAtT1 = fsm.getRoot()
+            checkFileNode(rootAtT1) {
+                isDir(start, t1, 2, 0,
+                    "foo" to {
+                        isDir(t1, t1, 1, 0,
+                            "a.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t2)
+            // rmLeaf fails on non-empty directories, and must not change the file system when it fails
+            assertFailsWith<IllegalArgumentException> { fsm.rmLeaf(Path("/nonempty-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+
+            // rmLeaf succeeds on a file
+            fsm.rmLeaf(Path("/foo/a.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 1, 0,
+                    "foo" to { isDir(t1, t2, 0, 0) },
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t3)
+            // rmLeaf succeeds on an empty directory
+            fsm.rmLeaf(Path("/empty-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t3, 1, 0,
+                    "foo" to { isDir(t1, t2, 0, 0) },
                     "nonempty-dir" to {
                         isDir(t1, t1, 1, 0,
                             "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
