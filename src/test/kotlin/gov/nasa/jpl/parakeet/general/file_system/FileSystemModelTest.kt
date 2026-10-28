@@ -14,12 +14,15 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rmRec
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rmdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.touch
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.write
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemNode.Directory
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemNode.File
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemTestUtils.checkFileNode
 import gov.nasa.jpl.parakeet.general.testing.UnitTesting.runUnitTest
 import org.junit.jupiter.api.Test
 import kotlin.io.path.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
@@ -32,6 +35,41 @@ class FileSystemModelTest {
                 isDir(start, start, 0, 0)
             }
         }
+    }
+
+    @Test
+    fun `model can start from a non-empty initial directory`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val past = start - 1.hours
+        val content = "hello".toByteArray()
+        val initialDirectory = Directory("", past, past, mapOf(
+            "docs" to Directory("docs", past, past, mapOf(
+                "readme.txt" to File("readme.txt", past, past, content),
+            )),
+            "empty.txt" to File("empty.txt", past),
+        ))
+        runUnitTest(start, { FileSystemModel("fs", initialDirectory) }) { fsm ->
+            checkFileNode(fsm.getRoot()) {
+                isDir(past, past, 2, content.size,
+                    "docs" to {
+                        isDir(past, past, 1, content.size,
+                            "readme.txt" to { isFile(past, past, content, content.size) },
+                        )
+                    },
+                    "empty.txt" to { isFile(past, past, null, 0) },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `model rejects an initial directory with a non-empty name`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        runUnitTest(start, { 
+            assertFailsWith<IllegalArgumentException> {
+                FileSystemModel("fs", Directory("root", start))
+            }
+        }) {}
     }
 
     @Test
