@@ -16,6 +16,7 @@ import kotlin.io.path.Path
 import kotlin.io.path.div
 import kotlin.io.path.name
 import kotlin.io.path.relativeTo
+import kotlin.time.Instant
 
 object FileSystemModelOperations {
     /*
@@ -202,26 +203,159 @@ object FileSystemModelOperations {
     context (_: TaskScope)
     fun FileSystemModel.touch(path: Path) {
         val now = now()
-        change(path, { target: FileSystemNode? -> when (target) {
-            is File -> target.copy(modifiedTime = now)
-            is Directory -> target.copy(modifiedTime = now)
-            is Corrupted -> target.copy(modifiedTime = now)
-            null -> File(path.name, now)
-        } }.named { "touch" })
+        change(path, { target: FileSystemNode? ->
+            target?.modifiedAt(now) ?: File(path.name, now)
+        }.named { "touch" })
     }
 
+    enum class WriteMode {
+        /**
+         * Create a new file. Error if the file already exists.
+         */
+        CreateOnly,
+        /**
+         * Create a new file, or overwrite the file if it already exists.
+         * Replaces both [File.content] and [File.sizeBytes].
+         */
+        CreateOrOverwrite,
+        /**
+         * Create a new file, or append to the file if it already exists.
+         * Appends to [File.content] and adds to [File.sizeBytes] independently.
+         * No guarantee is made that `File.content.size` will agree with `File.sizeBytes`.
+         */
+        Append,
+    }
+
+    /**
+     * Simulate writing a file at [path].
+     *
+     * @see WriteMode
+     */
     context (_: TaskScope)
-    fun FileSystemModel.write(path: Path, content: ByteArray? = null, sizeBytes: Int = content?.size ?: 0) {
+    fun FileSystemModel.write(
+        path: Path,
+        content: ByteArray? = null,
+        sizeBytes: Int = content?.size ?: 0,
+        writeMode: WriteMode = WriteMode.CreateOrOverwrite,
+    ) {
         val now = now()
-        change(path, { target: FileSystemNode? ->
-            // Either modify the file if it exists, or create a new file
-            (target as File?)?.copy(modifiedTime = now, content = content, sizeBytes = sizeBytes)
-                ?: File(path.name, now, content = content, sizeBytes = sizeBytes)
-        }, checkPreconditions = {
-            require(it is File?) {
-                "Cannot write to $path - it exists and is not a file"
-            }
-        })
+        change(
+            path,
+            { target: FileSystemNode? ->
+                if (target == null) {
+                    File(path.name, now, now, content, sizeBytes)
+                } else {
+                    // Safety: this cast is safe because of the precondition below
+                    target as File
+                    when (writeMode) {
+                        WriteMode.CreateOnly -> throw AssertionError("Impossible code path")
+                        WriteMode.CreateOrOverwrite -> target.copy(modifiedTime = now, content = content, sizeBytes = sizeBytes)
+                        WriteMode.Append -> target.copy(
+                            modifiedTime = now,
+                            content = content?.let {
+                                if (target.content == null) {
+                                    // We'll likely never combine null-content and non-null-content file modeling.
+                                    // Just do a best-effort merge for this case.
+                                    content
+                                } else {
+                                    // Genuine file append operation if both the existing file and the append operation have content.
+                                    ByteArray(content.size + target.content.size).also {
+                                        target.content.copyInto(it)
+                                        content.copyInto(it, target.content.size)
+                                    }
+                                }
+                            } ?: target.content,
+                            // Regardless of content, just add the sizes. This covers the common case of size-only modeling.
+                            sizeBytes = sizeBytes + target.sizeBytes,
+                        )
+                    }
+                }
+            },
+            checkPreconditions = {
+                when (writeMode) {
+                    WriteMode.CreateOnly -> require(it == null) {
+                        "Cannot write to $path - it exists and write mode is ${WriteMode.CreateOnly}"
+                    }
+                    WriteMode.CreateOrOverwrite, WriteMode.Append -> require(it is File?) {
+                        "Cannot write to $path - it exists and is not a file"
+                    }
+                }
+            },
+        )
+    }
+
+    /**
+     * Simulate appending to a file at [path].
+     */
+    context (_: TaskScope)
+    fun FileSystemModel.append(
+        path: Path,
+        content: ByteArray? = null,
+        sizeBytes: Int = content?.size ?: 0,
+    ) = write(path, content, sizeBytes)
+
+    /**
+     * Approximation of shell command `mv`.
+     *
+     * @see cp
+     */
+    context (_: TaskScope)
+    fun FileSystemModel.mv(src: Path, dst: Path) {
+        val target = this[src]
+        requireNotNull(target) {
+            "Cannot mv $src - not found"
+        }
+        val newTarget = target.modifiedAt(now())
+        val destination = this[dst]
+        val resolvedDst = when (destination) {
+            // If dst is an existing directory, mv into that directory
+            is Directory -> dst / newTarget.name
+            // If dst names an existing file, or nothing at all, mv to that exact path
+            is File, null -> dst
+            // If dst is corrupted, fail instead of guessing whether it's a directory or a file
+            is Corrupted -> throw IllegalArgumentException("mv failed - dst $dst is corrupted")
+        }
+        change(src, { _: FileSystemNode? -> null }.named { "mv (remove src)" },
+            checkPreconditions = {
+                require(it == target) {
+                    "Concurrently modified $src during mv, from $target to $it"
+                }
+            })
+        change(resolvedDst, { _: FileSystemNode? -> newTarget }.named { "mv (write dst)" },
+            checkPreconditions = {
+                require(it == null || (it is File && newTarget is File)) {
+                    "Cannot mv $src to $dst - move would overwrite a directory or corrupted node"
+                }
+            })
+    }
+
+    /**
+     * Approximation of shell command `cp`.
+     *
+     * @see mv
+     */
+    context (_: TaskScope)
+    fun FileSystemModel.cp(src: Path, dst: Path) {
+        val target = this[src]
+        requireNotNull(target) {
+            "Cannot cp $src - not found"
+        }
+        val newTarget = target.modifiedAt(now())
+        val destination = this[dst]
+        val resolvedDst = when (destination) {
+            // If dst is an existing directory, mv into that directory
+            is Directory -> dst / newTarget.name
+            // If dst names an existing file, or nothing at all, mv to that exact path
+            is File, null -> dst
+            // If dst is corrupted, fail instead of guessing whether it's a directory or a file
+            is Corrupted -> throw IllegalArgumentException("cp failed - dst $dst is corrupted")
+        }
+        change(resolvedDst, { _: FileSystemNode? -> newTarget }.named { "cp from $src" },
+            checkPreconditions = {
+                require(it == null || (it is File && newTarget is File)) {
+                    "Cannot cp $src to $dst - move would overwrite a directory or corrupted node"
+                }
+            })
     }
 }
 
@@ -234,4 +368,10 @@ private fun Path.subpath(end: Int): Path {
     val relativePath = subpath(0, end)
     // Somewhat awkwardly, we need to rebuild an absolute path if we started with an absolute path
     return root?.let { it / relativePath } ?: relativePath
+}
+
+private fun FileSystemNode.modifiedAt(time: Instant): FileSystemNode = when (this) {
+    is File -> copy(modifiedTime = time)
+    is Directory -> copy(modifiedTime = time)
+    is Corrupted -> copy(modifiedTime = time)
 }
