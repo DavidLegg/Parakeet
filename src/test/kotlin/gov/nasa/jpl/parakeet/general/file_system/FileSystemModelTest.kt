@@ -7,6 +7,7 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rm
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.WriteMode
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rmLeaf
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rmRecursive
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rmdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.touch
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.write
@@ -408,6 +409,80 @@ class FileSystemModelTest {
                             "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
                         )
                     },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `rmRecursive removes files and directories with their contents`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        val t4 = t3 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdirP(Path("/nonempty-dir/sub"))
+            fsm.touch(Path("/nonempty-dir/a.txt"))
+            fsm.touch(Path("/nonempty-dir/sub/b.txt"))
+            fsm.mkdir(Path("/empty-dir"))
+            fsm.mkdir(Path("/other-dir"))
+            fsm.touch(Path("/other-dir/c.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 3, 0,
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 2, 0,
+                            "a.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                            "sub" to {
+                                isDir(t1, t1, 1, 0,
+                                    "b.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                                )
+                            },
+                        )
+                    },
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "other-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "c.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t2)
+            // rmRecursive removes a non-empty directory along with everything inside it
+            fsm.rmRecursive(Path("/nonempty-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t2, 1, 0,
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "other-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "c.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t3)
+            // rmRecursive also removes empty directories
+            fsm.rmRecursive(Path("/empty-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t3, 1, 0,
+                    "other-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "c.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t4)
+            // rmRecursive also removes files
+            fsm.rmRecursive(Path("/other-dir/c.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t3, 0, 0,
+                    "other-dir" to { isDir(t1, t4, 0, 0) },
                 )
             }
         }
