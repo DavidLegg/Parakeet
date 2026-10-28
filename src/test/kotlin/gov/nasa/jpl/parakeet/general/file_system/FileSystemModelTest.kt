@@ -6,6 +6,7 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.mkdirP
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rm
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.WriteMode
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.rmdir
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.touch
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemModelOperations.write
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemTestUtils.checkFileNode
@@ -133,67 +134,6 @@ class FileSystemModelTest {
     }
 
     @Test
-    fun `rm removes individual files`() {
-        val start = Instant.parse("2000-01-01T00:00:00Z")
-        val t1 = start + 1.minutes
-        val t2 = t1 + 1.minutes
-        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
-            delayUntil(t1)
-            fsm.mkdir(Path("/foo"))
-            fsm.touch(Path("/foo/a.txt"))
-            fsm.touch(Path("/foo/b.txt"))
-            fsm.mkdir(Path("/bar"))
-            fsm.mkdir(Path("/baz"))
-            fsm.touch(Path("/baz/x.txt"))
-            checkFileNode(fsm.getRoot()) {
-                isDir(start, t1, 3, 0,
-                    "foo" to {
-                        isDir(t1, t1, 2, 0,
-                            "a.txt" to { isFile(t1, t1, sizeBytes = 0) },
-                            "b.txt" to { isFile(t1, t1, sizeBytes = 0) },
-                        )
-                    },
-                    "bar" to { isDir(t1, t1, 0, 0) },
-                    "baz" to {
-                        isDir(t1, t1, 1, 0,
-                            "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
-                        )
-                    },
-                )
-            }
-
-            delayUntil(t2)
-            fsm.rm(Path("/foo/a.txt"))
-            val rootAtT2 = fsm.getRoot()
-            checkFileNode(rootAtT2) {
-                isDir(start, t1, 2, 0,
-                    "foo" to {
-                        isDir(t1, t2, 1, 0,
-                            "b.txt" to { isFile(t1, t1, sizeBytes = 0) },
-                        )
-                    },
-                    "bar" to { isDir(t1, t1, 0, 0) },
-                    "baz" to {
-                        isDir(t1, t1, 1, 0,
-                            "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
-                        )
-                    },
-                )
-            }
-            // rm only removes files, so it must fail on both empty and non-empty directories
-            // and it must not change the file system when it fails
-            assertFailsWith<IllegalArgumentException> { fsm.rm(Path("/bar")) }
-            assertEquals(rootAtT2, fsm.getRoot())
-            assertFailsWith<IllegalArgumentException> { fsm.rm(Path("/baz")) }
-            assertEquals(rootAtT2, fsm.getRoot())
-            // In a slight departure from shell `rm` semantics, our rm quietly tolerates a missing file.
-            // This allows concurrent tasks to both `rm` a file, without error. This matches the intent of "just delete the file".
-            fsm.rm(Path("/foo/a.txt"))
-            assertEquals(rootAtT2, fsm.getRoot())
-        }
-    }
-
-    @Test
     fun `write in create-only mode fails if the file already exists`() {
         val start = Instant.parse("2000-01-01T00:00:00Z")
         val t1 = start + 1.minutes
@@ -286,6 +226,122 @@ class FileSystemModelTest {
                 isDir(start, t1, 2, content1.size + content2.size + 1024 + 2048,
                     "a.txt" to { isFile(t1, t2, content1 + content2, content1.size + content2.size) },
                     "b.txt" to { isFile(t1, t2, null, 1024 + 2048) },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `rm removes individual files`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/foo"))
+            fsm.touch(Path("/foo/a.txt"))
+            fsm.touch(Path("/foo/b.txt"))
+            fsm.mkdir(Path("/empty-dir"))
+            fsm.mkdir(Path("/nonempty-dir"))
+            fsm.touch(Path("/nonempty-dir/x.txt"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 3, 0,
+                    "foo" to {
+                        isDir(t1, t1, 2, 0,
+                            "a.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                            "b.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t2)
+            fsm.rm(Path("/foo/a.txt"))
+            val rootAtT2 = fsm.getRoot()
+            checkFileNode(rootAtT2) {
+                isDir(start, t1, 2, 0,
+                    "foo" to {
+                        isDir(t1, t2, 1, 0,
+                            "b.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+            // rm only removes files, so it must fail on both empty and non-empty directories
+            // and it must not change the file system when it fails
+            assertFailsWith<IllegalArgumentException> { fsm.rm(Path("/empty-dir")) }
+            assertEquals(rootAtT2, fsm.getRoot())
+            assertFailsWith<IllegalArgumentException> { fsm.rm(Path("/nonempty-dir")) }
+            assertEquals(rootAtT2, fsm.getRoot())
+            // In a slight departure from shell `rm` semantics, our rm quietly tolerates a missing file.
+            // This allows concurrent tasks to both `rm` a file, without error. This matches the intent of "just delete the file".
+            fsm.rm(Path("/foo/a.txt"))
+            assertEquals(rootAtT2, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `rmdir removes only empty directories`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/foo"))
+            fsm.touch(Path("/foo/a.txt"))
+            fsm.mkdir(Path("/empty-dir"))
+            fsm.mkdir(Path("/nonempty-dir"))
+            fsm.touch(Path("/nonempty-dir/x.txt"))
+            val rootAtT1 = fsm.getRoot()
+            checkFileNode(rootAtT1) {
+                isDir(start, t1, 2, 0,
+                    "foo" to {
+                        isDir(t1, t1, 1, 0,
+                            "a.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                    "empty-dir" to { isDir(t1, t1, 0, 0) },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t2)
+            // rmdir fails on files and non-empty directories, and must not change the file system when it fails
+            assertFailsWith<IllegalArgumentException> { fsm.rmdir(Path("/foo/a.txt")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            assertFailsWith<IllegalArgumentException> { fsm.rmdir(Path("/nonempty-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+
+            // rmdir succeeds on an empty directory
+            fsm.rmdir(Path("/empty-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t2, 2, 0,
+                    "foo" to {
+                        isDir(t1, t1, 1, 0,
+                            "a.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
+                    "nonempty-dir" to {
+                        isDir(t1, t1, 1, 0,
+                            "x.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                        )
+                    },
                 )
             }
         }
