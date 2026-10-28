@@ -310,7 +310,13 @@ object FileSystemModelOperations {
             // If dst is an existing directory, mv into that directory
             is Directory -> dst / target.name
             // If dst names an existing file, or nothing at all, mv to that exact path
-            is File, null -> dst
+            is File -> {
+                require (target is File) {
+                    "Cannot mv $src (non-file node) to $dst (a file)"
+                }
+                dst
+            }
+            null -> dst
             // If dst is corrupted, fail instead of guessing whether it's a directory or a file
             is Corrupted -> throw IllegalArgumentException("mv failed - dst $dst is corrupted")
         }

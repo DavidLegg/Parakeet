@@ -576,4 +576,75 @@ class FileSystemModelTest {
             }
         }
     }
+
+    @Test
+    fun `mv moves an empty directory`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        val t4 = t3 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdirP(Path("/src-dir/empty-dir"))
+            fsm.mkdir(Path("/dst-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 0, 0,
+                    "src-dir" to {
+                        isDir(t1, t1, 0, 0,
+                            "empty-dir" to { isDir(t1, t1, 0, 0) },
+                        )
+                    },
+                    "dst-dir" to { isDir(t1, t1, 0, 0) },
+                )
+            }
+
+            delayUntil(t2)
+            // mv into an existing directory keeps the directory's name
+            fsm.mv(Path("/src-dir/empty-dir"), Path("/dst-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 0, 0,
+                    "src-dir" to { isDir(t1, t2, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t2, 0, 0,
+                            "empty-dir" to { isDir(t1, t1, 0, 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t3)
+            // mv to a path that doesn't exist renames the directory
+            fsm.mv(Path("/dst-dir/empty-dir"), Path("/dst-dir/renamed-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 0, 0,
+                    "src-dir" to { isDir(t1, t2, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t3, 0, 0,
+                            "renamed-dir" to { isDir(t1, t1, 0, 0) },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t4)
+            fsm.touch(Path("/file.txt"))
+            val rootAtT4 = fsm.getRoot()
+            checkFileNode(rootAtT4) {
+                isDir(start, t4, 1, 0,
+                    "src-dir" to { isDir(t1, t2, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t3, 0, 0,
+                            "renamed-dir" to { isDir(t1, t1, 0, 0) },
+                        )
+                    },
+                    "file.txt" to { isFile(t4, t4, null, 0) },
+                )
+            }
+            // mv cannot overwrite a non-directory with a directory.
+            // It must fail, and must leave both the source and the destination untouched.
+            assertFailsWith<IllegalArgumentException> { fsm.mv(Path("/dst-dir/renamed-dir"), Path("/file.txt")) }
+            assertEquals(rootAtT4, fsm.getRoot())
+        }
+    }
 }
