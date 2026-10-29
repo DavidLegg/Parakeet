@@ -239,6 +239,23 @@ class FileSystemModelTest {
     }
 
     @Test
+    fun `touch fails if the parent is missing or is a file`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.write(Path("/file.txt"), sizeBytes = 10)
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            assertFailsWith<IllegalArgumentException> { fsm.touch(Path("/missing/a.txt")) }
+            assertFailsWith<IllegalArgumentException> { fsm.touch(Path("/file.txt/a.txt")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
     fun `write in create-only mode fails if the file already exists`() {
         val start = Instant.parse("2000-01-01T00:00:00Z")
         val t1 = start + 1.minutes
@@ -333,6 +350,54 @@ class FileSystemModelTest {
                     "b.txt" to { isFile(t1, t2, null, 1024 + 2048) },
                 )
             }
+        }
+    }
+
+    @Test
+    fun `write fails if the parent is missing or is a file`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.write(Path("/file.txt"), sizeBytes = 10)
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            for (writeMode in WriteMode.entries) {
+                assertFailsWith<IllegalArgumentException> {
+                    fsm.write(Path("/missing/a.txt"), sizeBytes = 5, writeMode = writeMode)
+                }
+                assertFailsWith<IllegalArgumentException> {
+                    fsm.write(Path("/file.txt/a.txt"), sizeBytes = 5, writeMode = writeMode)
+                }
+            }
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `write fails if the path is a directory`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/dir"))
+            fsm.write(Path("/dir/a.txt"), sizeBytes = 10)
+            fsm.mkdir(Path("/empty-dir"))
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            for (writeMode in WriteMode.entries) {
+                assertFailsWith<IllegalArgumentException> {
+                    fsm.write(Path("/dir"), sizeBytes = 5, writeMode = writeMode)
+                }
+                assertFailsWith<IllegalArgumentException> {
+                    fsm.write(Path("/empty-dir"), sizeBytes = 5, writeMode = writeMode)
+                }
+            }
+            assertEquals(rootAtT1, fsm.getRoot())
         }
     }
 
