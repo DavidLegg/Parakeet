@@ -133,6 +133,65 @@ class FileSystemModelTest {
     }
 
     @Test
+    fun `mkdir fails if the path exists, the parent is missing, or the parent is a file`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/dir"))
+            fsm.write(Path("/file.txt"), sizeBytes = 10)
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            assertFailsWith<IllegalArgumentException> { fsm.mkdir(Path("/dir")) }
+            assertFailsWith<IllegalArgumentException> { fsm.mkdir(Path("/file.txt")) }
+            assertFailsWith<IllegalArgumentException> { fsm.mkdir(Path("/missing/child")) }
+            assertFailsWith<IllegalArgumentException> { fsm.mkdir(Path("/file.txt/child")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `mkdirP is a no-op for existing directories`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdirP(Path("/foo/bar"))
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            fsm.mkdirP(Path("/"))
+            fsm.mkdirP(Path("/foo"))
+            fsm.mkdirP(Path("/foo/bar"))
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `mkdirP fails if any component of the path is a file`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/dir"))
+            fsm.write(Path("/file.txt"), sizeBytes = 10)
+            fsm.write(Path("/dir/inner.txt"), sizeBytes = 10)
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            assertFailsWith<IllegalArgumentException> { fsm.mkdirP(Path("/file.txt")) }
+            assertFailsWith<IllegalArgumentException> { fsm.mkdirP(Path("/dir/inner.txt")) }
+            assertFailsWith<IllegalArgumentException> { fsm.mkdirP(Path("/file.txt/child")) }
+            assertFailsWith<IllegalArgumentException> { fsm.mkdirP(Path("/dir/inner.txt/a/b")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
     fun `touch creates empty files and updates modified times`() {
         val start = Instant.parse("2000-01-01T00:00:00Z")
         val t1 = start + 1.minutes

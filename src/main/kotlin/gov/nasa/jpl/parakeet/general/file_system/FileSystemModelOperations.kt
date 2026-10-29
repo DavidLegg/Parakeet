@@ -292,7 +292,7 @@ object FileSystemModelOperations {
         path: Path,
         content: ByteArray? = null,
         sizeBytes: Int = content?.size ?: 0,
-    ) = write(path, content, sizeBytes)
+    ) = write(path, content, sizeBytes, WriteMode.Append)
 
     /**
      * Approximation of shell command `mv`.
