@@ -12,6 +12,7 @@ object FileSystemNodeOperations {
      * Get the child of this directory named by [name], or null if no such child exists.
      *
      * As a special case, if [name] is empty, return [this] instead.
+     * This is consistent with the path "" meaning the current working directory, and "foo//bar" meaning "foo/bar".
      */
     operator fun Directory.get(name: String): FileSystemNode? =
         if (name.isEmpty()) this else children[name]
@@ -163,7 +164,7 @@ object FileSystemNodeOperations {
      */
     fun Directory.set(path: Path, value: FileSystemNode?, time: Instant): Directory {
         val normalPath = path.localRelativePath()
-        return if (normalPath.nameCount == 0) {
+        return if (normalPath.nameCount == 1 && normalPath.name.isEmpty()) {
             requireNotNull(value) {
                 "Cannot delete root directory"
             }

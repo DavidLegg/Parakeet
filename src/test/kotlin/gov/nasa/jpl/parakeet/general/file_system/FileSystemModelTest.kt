@@ -239,6 +239,37 @@ class FileSystemModelTest {
     }
 
     @Test
+    fun `touch on the root directory updates its modified time`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.touch(Path("/"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 0, 0)
+            }
+
+            delayUntil(t2)
+            fsm.mkdir(Path("/foo"))
+            fsm.touch(Path("/foo/a.txt"))
+
+            delayUntil(t3)
+            fsm.touch(Path("/"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t3, 1, 0,
+                    "foo" to {
+                        isDir(t2, t2, 1, 0,
+                            "a.txt" to { isFile(t2, t2, sizeBytes = 0) },
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    @Test
     fun `touch fails if the parent is missing or is a file`() {
         val start = Instant.parse("2000-01-01T00:00:00Z")
         val t1 = start + 1.minutes
@@ -653,6 +684,30 @@ class FileSystemModelTest {
                     "other-dir" to { isDir(t1, t4, 0, 0) },
                 )
             }
+        }
+    }
+
+    @Test
+    fun `rmRecursive fails on the root directory`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            // Empty root
+            val emptyRoot = fsm.getRoot()
+            assertFailsWith<IllegalArgumentException> { fsm.rmRecursive(Path("/")) }
+            assertEquals(emptyRoot, fsm.getRoot())
+
+            // Non-empty root
+            delayUntil(t1)
+            fsm.mkdirP(Path("/dir/sub"))
+            fsm.touch(Path("/dir/a.txt"))
+            fsm.touch(Path("/b.txt"))
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            assertFailsWith<IllegalArgumentException> { fsm.rmRecursive(Path("/")) }
+            assertEquals(rootAtT1, fsm.getRoot())
         }
     }
 

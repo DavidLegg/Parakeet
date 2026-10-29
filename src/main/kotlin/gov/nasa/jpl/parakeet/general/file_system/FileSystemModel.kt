@@ -47,11 +47,9 @@ interface FileSystemModel {
      * Return the [FileSystemNode] (if any) stored at [path].
      *
      * [path] may be relative or absolute, with some [FileSystemModel] implementations accepting one, the other, or both.
-     * If [path] is null, get the base directory on [FileSystemModel] implementations accepting relative paths,
-     * consistent with [Path.root].
      */
     context (_: ResourceScope)
-    operator fun get(path: Path?): FileSystemNode?
+    operator fun get(path: Path): FileSystemNode?
 
     /**
      * Change the [FileSystemNode] stored at [path] by [effect].
@@ -63,7 +61,7 @@ interface FileSystemModel {
      * @see get
      */
     context(_: TaskScope)
-    fun change(path: Path?, effect: Effect<FileSystemNode?>)
+    fun change(path: Path, effect: Effect<FileSystemNode?>)
 
     data class FileSystemEffect(
         val path: Path,
@@ -81,14 +79,22 @@ interface FileSystemModel {
 
 /** Build a new [FileSystemEffect], localized at [newRoot] within the current effect's root */
 fun FileSystemEffect.at(newRoot: Path): FileSystemEffect = copy(path = path.relativeTo(newRoot))
-/** Get this as a direct effect on a [Directory], instead of a resource effect. */
-val FileSystemEffect.directEffect: Effect<FileSystemNode?> get() = {
-    if (path.nameCount == 0) {
-        localEffect(it)
-    } else {
-        // TODO: Copy some nicer error-checking in here, rather than a straight cast
-        it as Directory
-        it.set(path, localEffect(it[path]), time)
+/** Get this as a direct effect on a (nullable) [FileSystemNode], instead of a resource effect. */
+val FileSystemEffect.directEffect: Effect<FileSystemNode?> get() {
+    require(!path.isAbsolute) {
+        "Cannot build direct effect for ${FileSystemEffect::class.simpleName} '$this' on absolute path $path"
+    }
+    return {
+        if (path.nameCount == 1 && path.name.isEmpty()) {
+            // path indicates "here"
+            localEffect(it)
+        } else {
+            // path indicates a descendant of "here"
+            require(it is Directory) {
+                "Cannot apply $this at $path to non-directory node $it"
+            }
+            it.set(path, localEffect(it[path]), time)
+        }
     }
 }
 
@@ -103,8 +109,8 @@ fun FileSystemModel(name: String, initialDirectory: Directory = Directory("", no
         }
 
         context(_: ResourceScope)
-        override fun get(path: Path?): FileSystemNode? {
-            require(path != null && path.isAbsolute) {
+        override fun get(path: Path): FileSystemNode? {
+            require(path.isAbsolute) {
                 "Base ${FileSystemModel::class.simpleName}.get requires absolute paths, not '$path'."
             }
             val normalPath = path.normalize()
@@ -112,11 +118,11 @@ fun FileSystemModel(name: String, initialDirectory: Directory = Directory("", no
         }
 
         context(_: TaskScope)
-        override fun change(path: Path?, effect: Effect<FileSystemNode?>) {
-            require(path != null && path.isAbsolute) {
+        override fun change(path: Path, effect: Effect<FileSystemNode?>) {
+            require(path.isAbsolute) {
                 "Base ${FileSystemModel::class.simpleName}.change requires absolute paths, not '$path'."
             }
-            base.emit(FileSystemEffect(path.normalize().relativeTo(Path("/")), effect, now()))
+            base.emit(FileSystemEffect(path.normalize().relativeTo(path.root), effect, now()))
         }
     }
 }
@@ -240,10 +246,10 @@ private fun <T, R> groupByRootPath(
  */
 fun FileSystemModel.workingIn(baseDir: Path): FileSystemModel = object : FileSystemModel {
     context(_: ResourceScope)
-    override fun get(path: Path?): FileSystemNode? = this@workingIn[path?.let(baseDir::resolve) ?: baseDir]
+    override fun get(path: Path): FileSystemNode? = this@workingIn[baseDir.resolve(path)]
 
     context(_: TaskScope)
-    override fun change(path: Path?, effect: Effect<FileSystemNode?>) {
-        this@workingIn.change(path?.let(baseDir::resolve) ?: baseDir, effect)
+    override fun change(path: Path, effect: Effect<FileSystemNode?>) {
+        this@workingIn.change(baseDir.resolve(path), effect)
     }
 }
