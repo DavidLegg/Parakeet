@@ -55,6 +55,7 @@ object FileSystemModelOperations {
      * Write Operations
      */
 
+    // TODO: We never use post-conditions. Consider just moving pre-conditions into the caller, and removing this method.
     /**
      * Convenience extension of [FileSystemModel.change], with explicit pre- and post-condition checks.
      * These checks are run both in the task and in the effect.
@@ -301,22 +302,24 @@ object FileSystemModelOperations {
      */
     context (_: TaskScope)
     fun FileSystemModel.mv(src: Path, dst: Path) {
-        val target = this[src]
-        requireNotNull(target) {
+        val srcNode = this[src]
+        requireNotNull(srcNode) {
             "Cannot mv $src - not found"
         }
-        val destination = this[dst]
-        val resolvedDst = when (destination) {
+        val dstNode = this[dst]
+        val resolvedDst: Path
+        val resolvedDstNode: FileSystemNode?
+        when (dstNode) {
             // If dst is an existing directory, mv into that directory
-            is Directory -> dst / target.name
-            // If dst names an existing file, or nothing at all, mv to that exact path
-            is File -> {
-                require (target is File) {
-                    "Cannot mv $src (non-file node) to $dst (a file)"
-                }
-                dst
+            is Directory -> {
+                resolvedDst = dst / src.name
+                resolvedDstNode = dstNode[src.name]
             }
-            null -> dst
+            // If dst names an existing file, or nothing at all, mv to that exact path
+            is File, null -> {
+                resolvedDst = dst
+                resolvedDstNode = dstNode
+            }
             // If dst is corrupted, fail instead of guessing whether it's a directory or a file
             is Corrupted -> throw IllegalArgumentException("mv failed - dst $dst is corrupted")
         }
@@ -326,20 +329,40 @@ object FileSystemModelOperations {
         require(!resolvedDst.startsWith(src)) {
             "Cannot mv $src to its own sub-directory $resolvedDst"
         }
+        if (resolvedDstNode == null) {
+            // If the destination doesn't exist, just check that the destination directory does exist
+            require(this[resolvedDst.parent] is Directory) {
+                "Cannot mv $src to $dst - ${resolvedDst.parent} is not a directory"
+            }
+        } else {
+            // resolvedDst exists, ensure it's compatible for overwriting
+            when (srcNode) {
+                is File -> require(resolvedDstNode is File) {
+                    "Cannot mv file $src to overwrite non-file $dst"
+                }
+                is Directory -> {
+                    require(resolvedDstNode is Directory) {
+                        "Cannot mv directory $src to overwrite non-directory $dst"
+                    }
+                    require(resolvedDstNode.isEmpty()) {
+                        "Cannot mv directory $src to overwrite non-empty directory $dst"
+                    }
+                }
+                is Corrupted -> throw IllegalArgumentException("Cannot mv corrupted node $src to overwrite $dst")
+            }
+        }
+
         // Moving a file doesn't generally affect the timestamps
-        val newTarget = target.renamed(resolvedDst.name)
-        change(src, { _: FileSystemNode? -> null }.named { "mv (remove src)" },
-            checkPreconditions = {
-                require(it == target) {
-                    "Concurrently modified $src during mv, from $target to $it"
-                }
+        val newDstNode = srcNode.renamed(resolvedDst.name)
+        val now = now()
+        // Remove the node at src
+        change(src, { _: FileSystemNode? -> null }.named { "mv (remove src)" })
+        // Add the node at resolvedDst, and update the directory's modified time
+        change(resolvedDst.parent, { d: FileSystemNode? ->
+            (d as Directory).copy(modifiedTime = now, children = d.children.toMutableMap().also {
+                it[newDstNode.name] = newDstNode
             })
-        change(resolvedDst, { _: FileSystemNode? -> newTarget }.named { "mv (write dst)" },
-            checkPreconditions = {
-                require(it == null || (it is File && newTarget is File)) {
-                    "Cannot mv $src to $dst - move would overwrite a directory or corrupted node"
-                }
-            })
+        }.named { "mv (write dst)" })
     }
 
     /**

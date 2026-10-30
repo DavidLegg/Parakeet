@@ -960,6 +960,152 @@ class FileSystemModelTest {
     }
 
     @Test
+    fun `mv into a directory overwrites a same-named file in that directory`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        val t4 = t3 + 1.minutes
+        val t5 = t4 + 1.minutes
+        val t6 = t5 + 1.minutes
+        val oldContent = "old".toByteArray()
+        val newContent = "newer".toByteArray()
+        val dirContent = "in a directory".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/src-dir"))
+            fsm.mkdir(Path("/dst-dir"))
+            fsm.write(Path("/dst-dir/a.txt"), oldContent)
+
+            delayUntil(t2)
+            fsm.write(Path("/src-dir/a.txt"), newContent)
+
+            delayUntil(t3)
+            fsm.mv(Path("/src-dir/a.txt"), Path("/dst-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 1, newContent.size,
+                    "src-dir" to { isDir(t1, t3, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t3, 1, newContent.size,
+                            "a.txt" to { isFile(t2, t2, newContent, newContent.size) },
+                        )
+                    },
+                )
+            }
+
+            // Likewise, a directory replaces a same-named empty directory
+            delayUntil(t4)
+            fsm.mkdir(Path("/dst-dir/proj"))
+
+            delayUntil(t5)
+            fsm.mkdir(Path("/src-dir/proj"))
+            fsm.write(Path("/src-dir/proj/x.txt"), dirContent)
+
+            delayUntil(t6)
+            fsm.mv(Path("/src-dir/proj"), Path("/dst-dir"))
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t1, 2, newContent.size + dirContent.size,
+                    "src-dir" to { isDir(t1, t6, 0, 0) },
+                    "dst-dir" to {
+                        isDir(t1, t6, 2, newContent.size + dirContent.size,
+                            "a.txt" to { isFile(t2, t2, newContent, newContent.size) },
+                            "proj" to {
+                                isDir(t5, t5, 1, dirContent.size,
+                                    "x.txt" to { isFile(t5, t5, dirContent, dirContent.size) },
+                                )
+                            },
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `mv fails if it would overwrite a directory`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/src-dir"))
+            fsm.touch(Path("/src-dir/a.txt"))
+            fsm.mkdir(Path("/src-dir/proj"))
+            fsm.touch(Path("/src-dir/proj/x.txt"))
+            // dst-dir has a directory named like the source file,
+            // and a non-empty directory named like the source directory
+            fsm.mkdir(Path("/dst-dir"))
+            fsm.mkdir(Path("/dst-dir/a.txt"))
+            fsm.mkdir(Path("/dst-dir/proj"))
+            fsm.touch(Path("/dst-dir/proj/y.txt"))
+            // other-dir has a file named like the source directory
+            fsm.mkdir(Path("/other-dir"))
+            fsm.touch(Path("/other-dir/proj"))
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            // A file over a same-named directory
+            assertFailsWith<IllegalArgumentException> { fsm.mv(Path("/src-dir/a.txt"), Path("/dst-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            // A directory over a same-named non-empty directory
+            assertFailsWith<IllegalArgumentException> { fsm.mv(Path("/src-dir/proj"), Path("/dst-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            // A directory over a same-named file
+            assertFailsWith<IllegalArgumentException> { fsm.mv(Path("/src-dir/proj"), Path("/other-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `mv to the node's own location is a no-op`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val content = "hello".toByteArray()
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/dir"))
+            fsm.write(Path("/dir/a.txt"), content)
+            fsm.mkdir(Path("/dir/sub"))
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            // Onto itself by exact path
+            fsm.mv(Path("/dir/a.txt"), Path("/dir/a.txt"))
+            assertEquals(rootAtT1, fsm.getRoot())
+            // Into the directory it's already in
+            fsm.mv(Path("/dir/a.txt"), Path("/dir"))
+            assertEquals(rootAtT1, fsm.getRoot())
+            fsm.mv(Path("/dir/sub"), Path("/dir"))
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `mv fails if the destination's parent is missing or a file`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.touch(Path("/a.txt"))
+            fsm.touch(Path("/b.txt"))
+            fsm.mkdir(Path("/dir"))
+            fsm.touch(Path("/dir/x.txt"))
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            // The source must not be lost when the destination can't be written
+            assertFailsWith<IllegalArgumentException> { fsm.mv(Path("/a.txt"), Path("/missing/c.txt")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            assertFailsWith<IllegalArgumentException> { fsm.mv(Path("/a.txt"), Path("/b.txt/c.txt")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            assertFailsWith<IllegalArgumentException> { fsm.mv(Path("/dir"), Path("/missing/renamed-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
     fun `cp copies a file into a directory, to a new name, or over an existing file`() {
         val start = Instant.parse("2000-01-01T00:00:00Z")
         val t1 = start + 1.minutes
@@ -1233,6 +1379,150 @@ class FileSystemModelTest {
                 isDir(start, t2, 2, content.size * 2,
                     "a.txt" to { isFile(t1, t1, content, content.size) },
                     "b.txt" to { isFile(t2, t2, content, content.size) },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `cp fails to copy a directory over an existing file`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.touch(Path("/file.txt"))
+            fsm.mkdir(Path("/empty-dir"))
+            fsm.mkdir(Path("/nonempty-dir"))
+            fsm.touch(Path("/nonempty-dir/a.txt"))
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            assertFailsWith<IllegalArgumentException> { fsm.cpRecursive(Path("/empty-dir"), Path("/file.txt")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            assertFailsWith<IllegalArgumentException> { fsm.cpRecursive(Path("/nonempty-dir"), Path("/file.txt")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `cp fails if the destination directory already has a same-named directory or a conflicting node`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/src-dir"))
+            fsm.touch(Path("/src-dir/a.txt"))
+            fsm.mkdir(Path("/src-dir/proj"))
+            fsm.touch(Path("/src-dir/proj/x.txt"))
+            // dst-dir has a directory named like the source file, and a directory named like the source directory
+            fsm.mkdir(Path("/dst-dir"))
+            fsm.mkdir(Path("/dst-dir/a.txt"))
+            fsm.mkdir(Path("/dst-dir/proj"))
+            // other-dir has a file named like the source directory
+            fsm.mkdir(Path("/other-dir"))
+            fsm.touch(Path("/other-dir/proj"))
+            val rootAtT1 = fsm.getRoot()
+
+            delayUntil(t2)
+            // A file into a directory holding a same-named directory
+            assertFailsWith<IllegalArgumentException> { fsm.cp(Path("/src-dir/a.txt"), Path("/dst-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            // A directory into a directory holding a same-named directory
+            assertFailsWith<IllegalArgumentException> { fsm.cpRecursive(Path("/src-dir/proj"), Path("/dst-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+            // A directory into a directory holding a same-named file
+            assertFailsWith<IllegalArgumentException> { fsm.cpRecursive(Path("/src-dir/proj"), Path("/other-dir")) }
+            assertEquals(rootAtT1, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `cp fails if the destination is corrupted`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val past = start - 1.hours
+        val content = "hello".toByteArray()
+        val initialDirectory = Directory("", past, past, mapOf(
+            "bad" to FileSystemNode.Corrupted("bad", past, exception = RuntimeException("corrupted for test")),
+            "a.txt" to File("a.txt", past, past, content),
+            "dir" to Directory("dir", past, past, mapOf(
+                "x.txt" to File("x.txt", past, past, content),
+            )),
+        ))
+        runUnitTest(start, { FileSystemModel("fs", initialDirectory) }) { fsm ->
+            val initialRoot = fsm.getRoot()
+
+            delayUntil(t1)
+            assertFailsWith<IllegalArgumentException> { fsm.cp(Path("/a.txt"), Path("/bad")) }
+            assertEquals(initialRoot, fsm.getRoot())
+            assertFailsWith<IllegalArgumentException> { fsm.cpRecursive(Path("/dir"), Path("/bad")) }
+            assertEquals(initialRoot, fsm.getRoot())
+        }
+    }
+
+    @Test
+    fun `recursive cp resets created and modified times throughout a nested tree`() {
+        val start = Instant.parse("2000-01-01T00:00:00Z")
+        val t1 = start + 1.minutes
+        val t2 = t1 + 1.minutes
+        val t3 = t2 + 1.minutes
+        runUnitTest(start, { FileSystemModel("fs") }) { fsm ->
+            delayUntil(t1)
+            fsm.mkdir(Path("/proj"))
+            fsm.touch(Path("/proj/a.txt"))
+            fsm.mkdir(Path("/proj/sub"))
+            fsm.touch(Path("/proj/sub/b.txt"))
+            fsm.mkdir(Path("/proj/sub/deep"))
+
+            // Give the nodes in the source tree distinct modified times
+            delayUntil(t2)
+            fsm.touch(Path("/proj/sub/b.txt"))
+            val rootAtT2 = fsm.getRoot()
+            checkFileNode(rootAtT2) {
+                isDir(start, t1, 2, 0,
+                    "proj" to {
+                        isDir(t1, t1, 2, 0,
+                            "a.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                            "sub" to {
+                                isDir(t1, t1, 1, 0,
+                                    "b.txt" to { isFile(t1, t2, sizeBytes = 0) },
+                                    "deep" to { isDir(t1, t1, 0, 0) },
+                                )
+                            },
+                        )
+                    },
+                )
+            }
+
+            delayUntil(t3)
+            fsm.cpRecursive(Path("/proj"), Path("/copy"))
+            // Every node in the copy is new, at every depth. The original is left alone.
+            checkFileNode(fsm.getRoot()) {
+                isDir(start, t3, 4, 0,
+                    "proj" to {
+                        isDir(t1, t1, 2, 0,
+                            "a.txt" to { isFile(t1, t1, sizeBytes = 0) },
+                            "sub" to {
+                                isDir(t1, t1, 1, 0,
+                                    "b.txt" to { isFile(t1, t2, sizeBytes = 0) },
+                                    "deep" to { isDir(t1, t1, 0, 0) },
+                                )
+                            },
+                        )
+                    },
+                    "copy" to {
+                        isDir(t3, t3, 2, 0,
+                            "a.txt" to { isFile(t3, t3, sizeBytes = 0) },
+                            "sub" to {
+                                isDir(t3, t3, 1, 0,
+                                    "b.txt" to { isFile(t3, t3, sizeBytes = 0) },
+                                    "deep" to { isDir(t3, t3, 0, 0) },
+                                )
+                            },
+                        )
+                    },
                 )
             }
         }
