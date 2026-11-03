@@ -372,43 +372,56 @@ object FileSystemModelOperations {
      */
     context (_: TaskScope)
     fun FileSystemModel.cp(src: Path, dst: Path, recursive: Boolean = false) {
-        val target = this[src]
-        requireNotNull(target) {
+        val srcNode = this[src]
+        requireNotNull(srcNode) {
             "Cannot cp $src - not found"
         }
-        if (target is Directory) {
+        if (srcNode is Directory) {
             require(recursive) {
                 "Cannot cp directory $src because recursive mode is not enabled"
             }
         }
-        val now = now()
-        val destination = this[dst]
+        val dstNode = this[dst]
         val resolvedDst: Path
-        val newCreatedTime: Instant
-        when (destination) {
+        val resolvedDstNode: FileSystemNode?
+        when (dstNode) {
             // If dst is an existing directory, mv into that directory
             is Directory -> {
-                resolvedDst = dst / target.name
-                newCreatedTime = now
+                resolvedDst = dst / srcNode.name
+                resolvedDstNode = dstNode[srcNode.name]
             }
             // If dst names an existing file, or nothing at all, cp to that exact path
             is File -> {
-                require (target is File) {
-                    "Cannot cp $src (non-file node) to $dst (a file)"
-                }
                 resolvedDst = dst
-                // Creation times are not part of POSIX, but typical Linux systems reuse the inode in this case.
-                // This leads to preserving the destination's created time.
-                newCreatedTime = destination.createdTime
+                resolvedDstNode = dstNode
             }
             null -> {
                 resolvedDst = dst
-                newCreatedTime = now
+                resolvedDstNode = dstNode
             }
             // If dst is corrupted, fail instead of guessing whether it's a directory or a file
-            is Corrupted -> {
-                throw IllegalArgumentException("cp failed - dst $dst is corrupted")
+            is Corrupted -> throw IllegalArgumentException("cp failed - dst $dst is corrupted")
+        }
+        require (!resolvedDst.startsWith(src)) {
+            "Cannot cp $src to $resolvedDst - destination is, or is a child of, source"
+        }
+
+        val now = now()
+        val newCreatedTime = when (resolvedDstNode) {
+            is Directory -> {
+                require (srcNode is Directory) {
+                    "Cannot cp $src (non-directory node) over $dst (a directory)"
+                }
+                resolvedDstNode.createdTime
             }
+            is File -> {
+                require (srcNode is File) {
+                    "Cannot cp $src (non-file node) to $dst (a file)"
+                }
+                resolvedDstNode.createdTime
+            }
+            null -> now
+            is Corrupted -> throw IllegalArgumentException("cp failed - dst $dst is corrupted")
         }
 
         fun FileSystemNode.recursivelySetTimes(topLevelCreatedTime: Instant = now): FileSystemNode = when (this) {
@@ -417,13 +430,8 @@ object FileSystemModelOperations {
             is Corrupted -> this.copy(createdTime = topLevelCreatedTime, modifiedTime = now)
         }
 
-        val newTarget = target.renamed(resolvedDst.name).recursivelySetTimes(newCreatedTime)
-        change(resolvedDst, { _: FileSystemNode? -> newTarget }.named { "cp from $src" },
-            checkPreconditions = {
-                require(it == null || (it is File && newTarget is File)) {
-                    "Cannot cp $src to $dst - move would overwrite a directory or corrupted node"
-                }
-            })
+        val newNode = srcNode.renamed(resolvedDst.name).recursivelySetTimes(newCreatedTime)
+        change(resolvedDst, { _: FileSystemNode? -> newNode }.named { "cp from $src" })
     }
 
 
