@@ -3,13 +3,25 @@ package gov.nasa.jpl.parakeet.general.file_system
 import java.security.MessageDigest
 import kotlin.time.Instant
 
+sealed interface FileSystemNodeDigest
+
+/**
+ * A node in a modeled file system.
+ *
+ * A file system is a tree of [Directory] nodes with [File], [Corrupted], or empty [Directory] leaf nodes.
+ * All [FileSystemNode]s are immutable.
+ * Changes to the file system are done through copy-on-write functions.
+ * This allows multiple versions of the file system to naturally and safely share common subtrees.
+ *
+ * Additionally, every [FileSystemNode] computes a collision resistant hash of its contents (the [digest] field) for efficient equality checks.
+ * This makes it cheap to ask if the file system has changed, an important property for Parakeet conditions.
+ */
 sealed interface FileSystemNode {
     val name: String
     val createdTime: Instant
     val modifiedTime: Instant
     val sizeBytes: Int
-    /** Collision-resistant hash of node's contents. Do not mutate! */
-    val digest: ByteArray
+    val digest: FileSystemNodeDigest
 
     data class Directory(
         override val name: String,
@@ -24,7 +36,7 @@ sealed interface FileSystemNode {
                 is File, is Corrupted -> 1
             }
         }
-        override val digest: ByteArray = computeDigest {
+        override val digest = computeDigest {
             update(name.toByteArray(Charsets.UTF_8))
             update(createdTime)
             update(modifiedTime)
@@ -35,8 +47,8 @@ sealed interface FileSystemNode {
         }
 
         override fun equals(other: Any?): Boolean =
-            this === other || (other is FileSystemNode && digest.contentEquals(other.digest))
-        override fun hashCode(): Int = digest.contentHashCode()
+            this === other || (other is Directory && digest == other.digest)
+        override fun hashCode(): Int = digest.hashCode()
     }
 
     data class File(
@@ -46,7 +58,7 @@ sealed interface FileSystemNode {
         val content: ByteArray? = null,
         override val sizeBytes: Int = content?.size ?: 0,
     ) : FileSystemNode {
-        override val digest: ByteArray = computeDigest {
+        override val digest = computeDigest {
             update(name)
             update(createdTime)
             update(modifiedTime)
@@ -55,8 +67,8 @@ sealed interface FileSystemNode {
         }
 
         override fun equals(other: Any?): Boolean =
-            this === other || (other is FileSystemNode && digest.contentEquals(other.digest))
-        override fun hashCode(): Int = digest.contentHashCode()
+            this === other || (other is File && digest == other.digest)
+        override fun hashCode(): Int = digest.hashCode()
     }
 
     data class Corrupted(
@@ -95,7 +107,7 @@ sealed interface FileSystemNode {
         )
 
         // Don't include the exception in the digest. It's not valuable for comparison.
-        override val digest: ByteArray = computeDigest {
+        override val digest = computeDigest {
             update(name)
             update(createdTime)
             update(modifiedTime)
@@ -104,15 +116,21 @@ sealed interface FileSystemNode {
         }
 
         override fun equals(other: Any?): Boolean =
-            this === other || (other is FileSystemNode && digest.contentEquals(other.digest))
-        override fun hashCode(): Int = digest.contentHashCode()
+            this === other || (other is Corrupted && digest == other.digest)
+        override fun hashCode(): Int = digest.hashCode()
     }
 }
 
-private fun computeDigest(block: MessageDigest.() -> Unit): ByteArray {
+private data class ByteArrayDigest(val content: ByteArray) : FileSystemNodeDigest {
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is ByteArrayDigest && content contentEquals other.content)
+    override fun hashCode(): Int = content.contentHashCode()
+    override fun toString(): String = content.toHexString()
+}
+private fun computeDigest(block: MessageDigest.() -> Unit): FileSystemNodeDigest {
     val md = MessageDigest.getInstance("SHA-256")
     block(md)
-    return md.digest()
+    return ByteArrayDigest(md.digest())
 }
 
 // Private helpers for updating a message digest with all bytes of certain data types without constructing byte arrays
@@ -136,4 +154,8 @@ private fun MessageDigest.update(instant: Instant) {
 
 private fun MessageDigest.update(string: String) {
     update(string.toByteArray(Charsets.UTF_8))
+}
+
+private fun MessageDigest.update(digest: FileSystemNodeDigest) = when (digest) {
+    is ByteArrayDigest -> update(digest.content)
 }
