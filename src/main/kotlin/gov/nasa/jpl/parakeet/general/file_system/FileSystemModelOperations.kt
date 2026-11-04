@@ -8,6 +8,7 @@ import gov.nasa.jpl.parakeet.general.file_system.FileSystemNode.*
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.get
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.glob
 import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.isEmpty
+import gov.nasa.jpl.parakeet.general.file_system.FileSystemNodeOperations.iterator
 import gov.nasa.jpl.parakeet.kernel.Effect
 import gov.nasa.jpl.parakeet.utilities.named
 import java.nio.file.Path
@@ -48,34 +49,18 @@ object FileSystemModelOperations {
         }
     }
 
+    /**
+     * Whether some file node exists at [path] in [this].
+     */
+    context (_: ResourceScope)
+    operator fun FileSystemModel.contains(path: Path): Boolean = this[path] != null
+
     // TODO: Other common file operations, like ls and globbing?
     // Should these be written as FSN operations, and then just lifted to model operations, maybe?
 
     /*
      * Write Operations
      */
-
-    // TODO: We never use post-conditions. Consider just moving pre-conditions into the caller, and removing this method.
-    /**
-     * Convenience extension of [FileSystemModel.change], with explicit pre- and post-condition checks.
-     * These checks are run both in the task and in the effect.
-     * The checks run in the task can crash the task, and the precondition can abort the change if this happens.
-     * The checks run in the effect will corrupt the file system if the preconditions change due to concurrent effects.
-     */
-    context (_: TaskScope)
-    fun FileSystemModel.change(
-        path: Path,
-        effect: Effect<FileSystemNode?>,
-        checkPreconditions: (FileSystemNode?) -> Unit = {},
-        checkPostConditions: (FileSystemNode?) -> Unit = {},
-    ) {
-        checkPreconditions(this[path])
-        change(path, { target: FileSystemNode? ->
-            checkPreconditions(target)
-            effect(target).also { checkPostConditions(it) }
-        }.named(effect::toString))
-        checkPostConditions(this[path])
-    }
 
     /**
      * Make a directory, similar to the `mkdir` shell command.
@@ -86,11 +71,10 @@ object FileSystemModelOperations {
     context (_: TaskScope)
     fun FileSystemModel.mkdir(path: Path) {
         val newDir = Directory(path.name, now())
-        change(path, { _: FileSystemNode? -> newDir }.named { "mkdir" }, checkPreconditions = { target ->
-            require(target == null) {
-                "Path $path already exists"
-            }
-        })
+        require(path !in this) {
+            "Path $path already exists"
+        }
+        change(path, { _: FileSystemNode? -> newDir }.named { "mkdir" })
     }
 
     /**
@@ -121,11 +105,7 @@ object FileSystemModelOperations {
                     childDir, component -> Directory(component.name, now, children = mapOf(childDir.name to childDir))
                 }
                 // Finally, we set that newDir at its path, which includes newDir's name itself
-                change(path.subpath(i + 1), { _: FileSystemNode? -> newDir }.named { "mkdir -P" }, checkPreconditions = {
-                    require(it == null) {
-                        "Path $path already exists"
-                    }
-                })
+                change(path.subpath(i + 1), { _: FileSystemNode? -> newDir }.named { "mkdir -P" })
                 // Having done that, we're done with this method entirely
                 return
             }
@@ -176,6 +156,17 @@ object FileSystemModelOperations {
      */
     context (_: TaskScope)
     fun FileSystemModel.rm(path: Path, permissions: EnumSet<RmMode> = RM_FILE_MODE) {
+        val target = this[path]
+        if (target != null) {
+            val removalKind = when (target) {
+                is File -> Files
+                is Corrupted -> CorruptedNodes
+                is Directory -> if (target.isEmpty()) EmptyDirectories else NonEmptyDirectories
+            }
+            require(removalKind in permissions) {
+                "rm failed: $path requires $removalKind permissions, but given permissions were $permissions"
+            }
+        }
         change(path, { _: FileSystemNode? -> null }.named {
             // Lazily compute the name by trying to infer what kind of removal we're running
             when (permissions) {
@@ -185,17 +176,6 @@ object FileSystemModelOperations {
                 RM_RECURSIVE_MODE -> "rm -r"
                 RM_CORRUPTED_MODE -> "rm (corrupted)"
                 else -> "rm (custom: $permissions)"
-            }
-        }, checkPreconditions = {
-            if (it != null) {
-                val removalKind = when (it) {
-                    is File -> Files
-                    is Corrupted -> CorruptedNodes
-                    is Directory -> if (it.isEmpty()) EmptyDirectories else NonEmptyDirectories
-                }
-                require(removalKind in permissions) {
-                    "rm failed: $path requires $removalKind permissions, but given permissions were $permissions"
-                }
             }
         })
     }
@@ -240,49 +220,45 @@ object FileSystemModelOperations {
         writeMode: WriteMode = WriteMode.CreateOrOverwrite,
     ) {
         val now = now()
-        change(
-            path,
-            { target: FileSystemNode? ->
-                if (target == null) {
-                    File(path.name, now, now, content, sizeBytes)
-                } else {
-                    // Safety: this cast is safe because of the precondition below
-                    target as File
-                    when (writeMode) {
-                        WriteMode.CreateOnly -> throw AssertionError("Impossible code path")
-                        WriteMode.CreateOrOverwrite -> target.copy(modifiedTime = now, content = content, sizeBytes = sizeBytes)
-                        WriteMode.Append -> target.copy(
-                            modifiedTime = now,
-                            content = content?.let {
-                                if (target.content == null) {
-                                    // We'll likely never combine null-content and non-null-content file modeling.
-                                    // Just do a best-effort merge for this case.
-                                    content
-                                } else {
-                                    // Genuine file append operation if both the existing file and the append operation have content.
-                                    ByteArray(content.size + target.content.size).also {
-                                        target.content.copyInto(it)
-                                        content.copyInto(it, target.content.size)
-                                    }
-                                }
-                            } ?: target.content,
-                            // Regardless of content, just add the sizes. This covers the common case of size-only modeling.
-                            sizeBytes = sizeBytes + target.sizeBytes,
-                        )
-                    }
-                }
-            },
-            checkPreconditions = {
+        val target = this[path]
+        when (writeMode) {
+            WriteMode.CreateOnly -> require(target == null) {
+                "Cannot write to $path - it exists and write mode is ${WriteMode.CreateOnly}"
+            }
+            WriteMode.CreateOrOverwrite, WriteMode.Append -> require(target is File?) {
+                "Cannot write to $path - it exists and is not a file"
+            }
+        }
+        change(path, { target: FileSystemNode? ->
+            if (target == null) {
+                File(path.name, now, now, content, sizeBytes)
+            } else {
+                // Safety: this cast is safe because of the precondition below
+                target as File
                 when (writeMode) {
-                    WriteMode.CreateOnly -> require(it == null) {
-                        "Cannot write to $path - it exists and write mode is ${WriteMode.CreateOnly}"
-                    }
-                    WriteMode.CreateOrOverwrite, WriteMode.Append -> require(it is File?) {
-                        "Cannot write to $path - it exists and is not a file"
-                    }
+                    WriteMode.CreateOnly -> throw AssertionError("Impossible code path")
+                    WriteMode.CreateOrOverwrite -> target.copy(modifiedTime = now, content = content, sizeBytes = sizeBytes)
+                    WriteMode.Append -> target.copy(
+                        modifiedTime = now,
+                        content = content?.let {
+                            if (target.content == null) {
+                                // We'll likely never combine null-content and non-null-content file modeling.
+                                // Just do a best-effort merge for this case.
+                                content
+                            } else {
+                                // Genuine file append operation if both the existing file and the append operation have content.
+                                ByteArray(content.size + target.content.size).also {
+                                    target.content.copyInto(it)
+                                    content.copyInto(it, target.content.size)
+                                }
+                            }
+                        } ?: target.content,
+                        // Regardless of content, just add the sizes. This covers the common case of size-only modeling.
+                        sizeBytes = sizeBytes + target.sizeBytes,
+                    )
                 }
-            },
-        )
+            }
+        })
     }
 
     /**

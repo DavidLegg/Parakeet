@@ -28,7 +28,7 @@ sealed interface FileSystemNode {
             update(name.toByteArray(Charsets.UTF_8))
             update(createdTime)
             update(modifiedTime)
-            for ((name, child) in children) {
+            for ((name, child) in children.asIterable().sortedBy { it.key }) {
                 update(name)
                 update(child.digest)
             }

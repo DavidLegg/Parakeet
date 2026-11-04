@@ -29,6 +29,11 @@ object FileSystemNodeOperations {
     }
 
     /**
+     * Loop over the children of this directory
+     */
+    operator fun Directory.iterator(): Iterator<FileSystemNode> = children.values.iterator()
+
+    /**
      * Return all descendants matching the glob [pattern].
      *
      * Supported glob elements:
@@ -58,7 +63,7 @@ object FileSystemNodeOperations {
             val c = component.name
             val newFrontier = mutableMapOf<Path, FileSystemNode>()
             if (c == "**") {
-                // Special case - recursive descent. Explore all descendents of everything in the frontier.
+                // Special case - recursive descent. Explore all descendants of everything in the frontier.
                 val worklist = ArrayDeque(frontier.entries.map { (k, v) -> k to v })
                 while (worklist.isNotEmpty()) {
                     val (path, node) = worklist.removeFirst()
@@ -68,8 +73,8 @@ object FileSystemNodeOperations {
                     newFrontier[path] = node
                     // If this found node is a directory, add all its children to be processed too
                     if (node is Directory) {
-                        for ((childName, child) in node.children) {
-                            worklist.add((path / childName) to child)
+                        for (child in node) {
+                            worklist.add((path / child.name) to child)
                         }
                     }
                 }
@@ -90,9 +95,9 @@ object FileSystemNodeOperations {
                         // General case - we need to filter children by which ones match the pattern
                         for ((path, node) in frontier) {
                             if (node is Directory) {
-                                for ((childName, child) in node.children) {
-                                    if (resolved.regex.matches(childName)) {
-                                        newFrontier[path / childName] = child
+                                for (child in node) {
+                                    if (resolved.regex.matches(child.name)) {
+                                        newFrontier[path / child.name] = child
                                     }
                                 }
                             }
