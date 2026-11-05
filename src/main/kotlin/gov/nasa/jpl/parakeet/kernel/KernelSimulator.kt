@@ -73,13 +73,13 @@ class KernelSimulator(
                 value: T,
                 valueType: KType,
                 stepBy: (T, Duration) -> T,
-                applyConcurrentEffects: (List<Effect<T>>, T) -> T,
+                commit: (EffectBatch<T>, T) -> T,
             ): Cell<T> = CellImpl(
                 name,
                 incon?.cells?.get(name, valueType) ?: value,
                 valueType,
                 stepBy,
-                applyConcurrentEffects,
+                commit,
                 id = nextCellId++,
                 lastWrittenTime = time,
             ).also<CellImpl<T>> { cells += it }
@@ -196,16 +196,7 @@ class KernelSimulator(
         fun <T> Cell<T>.applyBatchNetEffect() {
             (this as CellImpl<T>).value = batchNetEffect!!.value ?:
                 // Combine all branches' effects using the model-provided merge operator
-                applyConcurrentEffects(batchNetEffect!!.effects.map { effectsForOneBranch ->
-                    // For each branch's list of effects, build an effect which applies all of them sequentially
-                    {
-                        var result = it
-                        for (effect in effectsForOneBranch) {
-                            result = effect(result)
-                        }
-                        result
-                    }
-                }, value)
+                commit(batchNetEffect!!.effects, value)
 
             batchNetEffect = null
             // Record the merged value as the last-written value to step up from later

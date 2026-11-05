@@ -11,15 +11,19 @@ interface Cell<T> {
     val name: Name
     val valueType: KType
     val stepBy: (T, Duration) -> T
-    val applyConcurrentEffects: (List<Effect<T>>, T) -> T
+    /** Apply all the effects from a batch to the current value. */
+    val commit: (EffectBatch<T>, T) -> T
 }
+
+typealias EffectBatch<T> = List<EffectBranch<T>>
+typealias EffectBranch<T> = List<Effect<T>>
 
 class CellImpl<T> internal constructor(
     override val name: Name,
     internal var value: T,
     override val valueType: KType,
     override val stepBy: (T, Duration) -> T,
-    override val applyConcurrentEffects: (List<Effect<T>>, T) -> T,
+    override val commit: (EffectBatch<T>, T) -> T,
     /** Internal bookkeeping: a unique ID for this cell, used to accelerate equality checks and hashing */
     private val id: Int,
     /** Internal bookkeeping: the value this cell had the last time it was written to */

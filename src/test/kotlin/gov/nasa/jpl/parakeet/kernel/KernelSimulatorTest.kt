@@ -55,10 +55,12 @@ class KernelSimulatorTest {
         return SimulationResult(reports, fincon)
     }
 
-    private fun <T> applyAllEffects(effects: List<Effect<T>>, value: T): T {
+    private fun <T> applyAllEffects(effects: EffectBatch<T>, value: T): T {
         var result = value
-        for (effect in effects) {
-            result = effect(result)
+        for (branch in effects) {
+            for (effect in branch) {
+                result = effect(result)
+            }
         }
         return result
     }
